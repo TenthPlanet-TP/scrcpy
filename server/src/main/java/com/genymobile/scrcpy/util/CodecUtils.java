@@ -8,6 +8,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import android.os.Bundle;
+import android.media.MediaCodec;
+
 public final class CodecUtils {
 
     private CodecUtils() {
@@ -23,6 +26,24 @@ public final class CodecUtils {
             format.setFloat(key, (Float) value);
         } else if (value instanceof String) {
             format.setString(key, (String) value);
+        }
+    }
+
+    public static void setCodecOption(MediaCodec codec, String key, Object value) {
+        try {
+            Bundle params = new Bundle();
+            if (value instanceof Integer) {
+                params.putInt(key, (Integer) value);
+            } else if (value instanceof Long) {
+                params.putLong(key, (Long) value);
+            } else if (value instanceof Float) {
+                params.putFloat(key, (Float) value);
+            } else if (value instanceof String) {
+                params.putString(key, (String) value);
+            }
+            codec.setParameters(params);
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
         }
     }
 

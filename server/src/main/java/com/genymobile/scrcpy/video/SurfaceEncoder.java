@@ -12,6 +12,8 @@ import com.genymobile.scrcpy.util.CodecUtils;
 import com.genymobile.scrcpy.util.IO;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.LogUtils;
+import com.genymobile.scrcpy.encodeStat.EncodeStatSender;
+import com.genymobile.scrcpy.encodeStat.EncodeUtils;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -25,6 +27,14 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.AbstractMap.SimpleEntry;
+import android.os.Bundle;
+
 
 public class SurfaceEncoder implements AsyncProcessor {
 
@@ -52,7 +62,15 @@ public class SurfaceEncoder implements AsyncProcessor {
 
     private final CaptureReset reset = new CaptureReset();
 
-    public SurfaceEncoder(SurfaceCapture capture, Streamer streamer, Options options) {
+    private EncodeUtils encodeUtils = new EncodeUtils();
+
+    private final EncodeStatSender encodeStatSender;
+
+    int mBitrateKbps = -1;
+    int mMinQp = -1;
+    int mMaxQp = -1;
+
+    public SurfaceEncoder(SurfaceCapture capture, Streamer streamer, Options options, EncodeStatSender sender) {
         this.capture = capture;
         this.streamer = streamer;
         this.videoBitRate = options.getVideoBitRate();
@@ -60,6 +78,7 @@ public class SurfaceEncoder implements AsyncProcessor {
         this.codecOptions = options.getVideoCodecOptions();
         this.encoderName = options.getVideoEncoder();
         this.downsizeOnError = options.getDownsizeOnError();
+        this.encodeStatSender = sender;
     }
 
     private void streamCapture() throws IOException, ConfigurationException {
@@ -68,6 +87,20 @@ public class SurfaceEncoder implements AsyncProcessor {
         MediaFormat format = createFormat(codec.getMimeType(), videoBitRate, maxFps, codecOptions);
 
         capture.init(reset);
+
+        if (encodeUtils.init(codec.getMimeType())) {
+            encodeUtils.setCallback(new EncodeUtils.OnParseCb() {
+                @Override
+                public void callback(String str) {
+                    if (encodeStatSender != null) {
+                        encodeStatSender.send(str);
+                    }
+                }
+            });
+        } else {
+            Ln.e("Failed to init encode utils");
+            encodeUtils = null;
+        }
 
         try {
             boolean alive;
@@ -213,6 +246,39 @@ public class SurfaceEncoder implements AsyncProcessor {
                         consecutiveErrors = 0;
                     }
 
+                    if (encodeUtils != null) {
+                        encodeUtils.parseEncodeStream(codecBuffer, bufferInfo);
+
+                        List<CodecOption> options = encodeUtils.getCodecOptions();
+                        if (options != null && !options.isEmpty()) {
+                            for (CodecOption option : options) {
+                                String key = option.getKey();
+                                Object value = option.getValue();
+                                CodecUtils.setCodecOption(codec, key, value);
+                                Ln.d("Video codec option set: " + key + " (" + value.getClass().getSimpleName() + ") = " + value);
+                            }
+                            encodeUtils.clearCodecOptions();
+
+                        } else {
+                            int bitrateKbps = encodeUtils.getEncodeBitRate();
+                            if (mBitrateKbps != bitrateKbps) {
+                                mBitrateKbps = bitrateKbps;
+                                updateBitrate(codec, bitrateKbps);
+                            }
+    
+                            SimpleEntry<Integer, Integer> qpRange = encodeUtils.getQpRange();
+                            if (qpRange != null) {
+                                int minQp = qpRange.getKey();
+                                int maxQp = qpRange.getValue();
+                                if (mMinQp != minQp || mMaxQp != maxQp) {
+                                    mMinQp = minQp;
+                                    mMaxQp = maxQp;
+                                    updateQpRange(codec, minQp, maxQp);
+                                }
+                            }
+                        }
+                    }
+
                     streamer.writePacket(codecBuffer, bufferInfo);
                 }
             } finally {
@@ -233,6 +299,12 @@ public class SurfaceEncoder implements AsyncProcessor {
                     Ln.e("Video encoder type for \"" + encoderName + "\" (" + mimeType + ") does not match codec type (" + codec.getMimeType() + ")");
                     throw new ConfigurationException("Incorrect encoder type: " + encoderName);
                 }
+
+                if (Build.VERSION.SDK_INT >= AndroidVersions.API_31_ANDROID_12) {
+                    List<String> supportedExtensions = mediaCodec.getSupportedVendorParameters();
+                    Ln.d("Supported vendor parameters: " + supportedExtensions);
+                }
+
                 return mediaCodec;
             } catch (IllegalArgumentException e) {
                 Ln.e("Video encoder '" + encoderName + "' for " + codec.getName() + " not found\n" + LogUtils.buildVideoEncoderListMessage());
@@ -246,6 +318,12 @@ public class SurfaceEncoder implements AsyncProcessor {
         try {
             MediaCodec mediaCodec = MediaCodec.createEncoderByType(codec.getMimeType());
             Ln.d("Using video encoder: '" + mediaCodec.getName() + "'");
+
+            if (Build.VERSION.SDK_INT >= AndroidVersions.API_31_ANDROID_12) {
+                List<String> supportedExtensions = mediaCodec.getSupportedVendorParameters();
+                Ln.d("Supported vendor parameters: " + supportedExtensions);
+            }
+
             return mediaCodec;
         } catch (IOException | IllegalArgumentException e) {
             Ln.e("Could not create default video encoder for " + codec.getName() + "\n" + LogUtils.buildVideoEncoderListMessage());
@@ -315,6 +393,10 @@ public class SurfaceEncoder implements AsyncProcessor {
             stopped.set(true);
             reset.reset();
         }
+
+        if (encodeUtils != null) {
+            encodeUtils.exit();
+        }
     }
 
     @Override
@@ -323,4 +405,32 @@ public class SurfaceEncoder implements AsyncProcessor {
             thread.join();
         }
     }
+
+    private void updateBitrate(MediaCodec codec, int bitrateKbps) {
+        Ln.d("updateBitrate: " + bitrateKbps/1000 + "kbps");
+        try {
+            Bundle params = new Bundle();
+            params.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrateKbps);
+            codec.setParameters(params);
+        } catch (IllegalStateException e) {
+            Ln.e("updateBitrate failed: ", e);
+        }
+    }
+
+    private void updateQpRange(MediaCodec codec, int minQp, int maxQp) {
+        Ln.d("updateQpRange: minQp: " + minQp + ", maxQp: " + maxQp);
+        try {
+            Bundle params = new Bundle();
+            params.putInt("video-qp-i-min", minQp);
+            params.putInt("video-qp-i-max", maxQp);
+            params.putInt("video-qp-p-min", minQp);
+            params.putInt("video-qp-p-max", maxQp);
+            codec.setParameters(params);
+        } catch (IllegalStateException e) {
+            Ln.e("updateQpRange failed", e);
+        }
+    }
+
+
+    
 }

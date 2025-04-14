@@ -3,6 +3,7 @@ package com.genymobile.scrcpy.device;
 import com.genymobile.scrcpy.control.ControlChannel;
 import com.genymobile.scrcpy.util.IO;
 import com.genymobile.scrcpy.util.StringUtils;
+import com.genymobile.scrcpy.encodeStat.EncodeStatSender;
 
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
@@ -12,6 +13,7 @@ import java.io.Closeable;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import com.genymobile.scrcpy.util.Ln;
 
 public final class DesktopConnection implements Closeable {
 
@@ -27,8 +29,9 @@ public final class DesktopConnection implements Closeable {
 
     private final LocalSocket controlSocket;
     private final ControlChannel controlChannel;
+    private final EncodeStatSender encodeStatSender;
 
-    private DesktopConnection(LocalSocket videoSocket, LocalSocket audioSocket, LocalSocket controlSocket) throws IOException {
+    private DesktopConnection(LocalSocket videoSocket, LocalSocket audioSocket, LocalSocket controlSocket, EncodeStatSender sender) throws IOException {
         this.videoSocket = videoSocket;
         this.audioSocket = audioSocket;
         this.controlSocket = controlSocket;
@@ -36,6 +39,7 @@ public final class DesktopConnection implements Closeable {
         videoFd = videoSocket != null ? videoSocket.getFileDescriptor() : null;
         audioFd = audioSocket != null ? audioSocket.getFileDescriptor() : null;
         controlChannel = controlSocket != null ? new ControlChannel(controlSocket) : null;
+        this.encodeStatSender = sender;
     }
 
     private static LocalSocket connect(String abstractName) throws IOException {
@@ -57,9 +61,11 @@ public final class DesktopConnection implements Closeable {
             throws IOException {
         String socketName = getSocketName(scid);
 
+        Ln.i("scid:" + scid + ", tunnelForward:" + tunnelForward);
         LocalSocket videoSocket = null;
         LocalSocket audioSocket = null;
         LocalSocket controlSocket = null;
+        EncodeStatSender encodeStatSender = null;
         try {
             if (tunnelForward) {
                 try (LocalServerSocket localServerSocket = new LocalServerSocket(socketName)) {
@@ -98,6 +104,10 @@ public final class DesktopConnection implements Closeable {
                 if (control) {
                     controlSocket = connect(socketName);
                 }
+                if (encodeStatSender == null) {
+                    encodeStatSender = new EncodeStatSender(socketName);
+                    encodeStatSender.start();
+                }
             }
         } catch (IOException | RuntimeException e) {
             if (videoSocket != null) {
@@ -109,10 +119,18 @@ public final class DesktopConnection implements Closeable {
             if (controlSocket != null) {
                 controlSocket.close();
             }
+            if (encodeStatSender != null) {
+                encodeStatSender.stop();
+                try {
+                    encodeStatSender.join();
+                } catch (InterruptedException e1) {
+                    e.printStackTrace();
+                }
+            }
             throw e;
         }
 
-        return new DesktopConnection(videoSocket, audioSocket, controlSocket);
+        return new DesktopConnection(videoSocket, audioSocket, controlSocket, encodeStatSender);
     }
 
     private LocalSocket getFirstSocket() {
@@ -138,6 +156,9 @@ public final class DesktopConnection implements Closeable {
             controlSocket.shutdownInput();
             controlSocket.shutdownOutput();
         }
+        if (encodeStatSender != null) {
+            encodeStatSender.stop();
+        }
     }
 
     public void close() throws IOException {
@@ -149,6 +170,13 @@ public final class DesktopConnection implements Closeable {
         }
         if (controlSocket != null) {
             controlSocket.close();
+        }
+        try {
+            if (encodeStatSender != null) {
+                encodeStatSender.join();
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
 
@@ -174,5 +202,9 @@ public final class DesktopConnection implements Closeable {
 
     public ControlChannel getControlChannel() {
         return controlChannel;
+    }
+
+    public EncodeStatSender getEncodeStatSender() {
+        return encodeStatSender;
     }
 }

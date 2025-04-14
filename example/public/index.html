@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Real-time Charts</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    canvas {
+      border: 1px solid black;
+      margin-bottom: 10px;
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="sizeCanvas"></canvas>
+  <canvas id="qpCanvas"></canvas>
+  <canvas id="encodeCostCanvas"></canvas>
+  <canvas id="framerateCanvas"></canvas>
+  <canvas id="bitrateCanvas"></canvas>
+  <script>
+    /*jshint browser:true*/
+
+    // 获取 canvas 元素和上下文
+    const sizeCanvas = document.getElementById('sizeCanvas');
+    const sizeCtx = sizeCanvas.getContext('2d');
+    const qpCanvas = document.getElementById('qpCanvas');
+    const qpCtx = qpCanvas.getContext('2d');
+    const encodeCostCanvas = document.getElementById('encodeCostCanvas');
+    const encodeCostCtx = encodeCostCanvas.getContext('2d');
+    const framerateCanvas = document.getElementById('framerateCanvas');
+    const framerateCtx = framerateCanvas.getContext('2d');
+    const bitrateCanvas = document.getElementById('bitrateCanvas');
+    const bitrateCtx = bitrateCanvas.getContext('2d');
+
+    // WebSocket 连接
+    const ws = new WebSocket('ws://localhost:9002', 'scrcpy');
+    const frameDataQueue = [];
+    const frameStatDataQueue = [];
+    let frameDataPoints = [];
+    let frameStatDataPoints = [];
+    const maxPoints = 100; // 最大显示点数
+
+    // 添加图表配置对象
+    const chartConfig = {
+      size: { maxValue: 350, step: 50, unit: 'K' },
+      qp: { maxValue: 60, step: 10, unit: '' },
+      encodeCost: { maxValue: 60, step: 10, unit: '' },
+      framerate: { maxValue: 70, step: 10, unit: '' },
+      bitrate: { maxValue: 12, step: 3, unit: 'M' }
+    };
+
+    // 处理 WebSocket 关闭事件
+    ws.onclose = function() {
+      console.log('WebSocket 连接已关闭', arguments);
+    };
+
+    // 处理 WebSocket 错误事件
+    ws.onerror = function() {
+      console.error('WebSocket 连接出错', arguments);
+      alert('WebSocket 连接出错，请检查服务器或网络');
+    };
+
+    // 处理 WebSocket 接收到消息事件
+    ws.onmessage = function(message) {
+      try {
+        const obj = JSON.parse(message.data);
+        if (obj.type === 'frame' && obj.data) {
+          frameDataQueue.push(obj.data);
+        } else if (obj.type === 'frameStat' && obj.data) {
+          frameStatDataQueue.push(obj.data);
+        }
+      } catch (err) {
+        console.error('JSON 解析失败：', message.data);
+      }
+    };
+
+    // 处理 WebSocket 打开事件
+    ws.onopen = function() {
+      console.log('WebSocket 连接已打开', arguments);
+    };
+
+    // 添加数值格式化函数
+    function formatNumber(num, digits = 1) {
+      return Number(num.toFixed(digits));
+    }
+
+    // 优化 Y 轴缩放计算函数
+    function calculateYPos(value, maxValue, height) {
+      return height - (value * height / maxValue);
+    }
+
+    // 绘制 Y 轴刻度的通用函数
+    function drawYAxisScale(ctx, maxValue, step, unit = '') {
+      ctx.font = "10px Arial";
+      ctx.fillStyle = 'black';
+      for (let i = 0; i <= maxValue; i += step) {
+        const y = ctx.canvas.height - (i * ctx.canvas.height / maxValue);
+        ctx.fillText(`${i}${unit}`, 2, y);
+      }
+    }
+
+    // 绘制帧大小图表
+    function drawSizeChart() {
+      // 处理队列中的数据
+      const newData = frameDataQueue.splice(0);
+      frameDataPoints = [...frameDataPoints, ...newData];
+      if (frameDataPoints.length > maxPoints) {
+        frameDataPoints = frameDataPoints.slice(-maxPoints);
+      }
+
+      sizeCtx.clearRect(0, 0, sizeCanvas.width, sizeCanvas.height);
+
+      // 绘制 FrameSize 文本
+      sizeCtx.font = "15px Arial";
+      sizeCtx.fillText("Frame size(K)", 40, 30);
+
+      const config = chartConfig.size;
+      // 绘制柱状图
+      if (frameDataPoints.length > 0) {
+        frameDataPoints.forEach((data, index) => {
+          const x = index * (sizeCanvas.width / maxPoints);
+          const sizeKB = formatNumber(data.size / 1024);
+          const height = calculateYPos(0, config.maxValue, sizeCanvas.height) 
+                        - calculateYPos(sizeKB, config.maxValue, sizeCanvas.height);
+          sizeCtx.fillStyle = data.isKeyFrame ? 'red' : 'blue';
+          sizeCtx.fillRect(x, calculateYPos(sizeKB, config.maxValue, sizeCanvas.height), 
+                          sizeCanvas.width / maxPoints - 2, height);
+        });
+      }
+
+      // 绘制 Y 轴刻度
+      drawYAxisScale(sizeCtx, config.maxValue, config.step, config.unit);
+
+      requestAnimationFrame(drawSizeChart);
+    }
+
+    // 绘制 QP 图表
+    function drawQpChart() {
+      qpCtx.clearRect(0, 0, qpCanvas.width, qpCanvas.height);
+
+      // 绘制 QP 文本
+      qpCtx.font = "15px Arial";
+      qpCtx.fillText("QP", 40, 30);
+
+      const config = chartConfig.qp;
+      // 绘制折线图
+      qpCtx.beginPath();
+      qpCtx.strokeStyle = 'green';
+      if (frameDataPoints.length > 0) {
+        frameDataPoints.forEach((data, index) => {
+          const x = index * (qpCanvas.width / maxPoints);
+          const y = calculateYPos(data.qp, config.maxValue, qpCanvas.height);
+          if (index === 0) {
+            qpCtx.moveTo(x, y);
+          } else {
+            qpCtx.lineTo(x, y);
+          }
+        });
+      }
+      qpCtx.stroke();
+
+      // 绘制 Y 轴刻度
+      drawYAxisScale(qpCtx, config.maxValue, config.step, config.unit);
+
+      requestAnimationFrame(drawQpChart);
+    }
+
+    // 绘制编码成本图表
+    function drawEncodeCostChart() {
+      encodeCostCtx.clearRect(0, 0, encodeCostCanvas.width, encodeCostCanvas.height);
+
+      // 绘制 encode_cost_ms 文本
+      encodeCostCtx.font = "15px Arial";
+      encodeCostCtx.fillText("Encode cost(ms)", 40, 30);
+
+      const config = chartConfig.encodeCost;
+      // 绘制折线图
+      encodeCostCtx.beginPath();
+      encodeCostCtx.strokeStyle = 'orange';
+      if (frameDataPoints.length > 0) {
+        frameDataPoints.forEach((data, index) => {
+          const x = index * (encodeCostCanvas.width / maxPoints);
+          const y = calculateYPos(data.encode_cost_ms, config.maxValue, encodeCostCanvas.height);
+          if (index === 0) {
+            encodeCostCtx.moveTo(x, y);
+          } else {
+            encodeCostCtx.lineTo(x, y);
+          }
+        });
+      }
+      encodeCostCtx.stroke();
+
+      // 绘制 Y 轴刻度
+      drawYAxisScale(encodeCostCtx, config.maxValue, config.step, config.unit);
+
+      requestAnimationFrame(drawEncodeCostChart);
+    }
+
+    // 绘制帧率图表
+    function drawFramerateChart() {
+      // 处理队列中的数据
+      const newData = frameStatDataQueue.splice(0);
+      frameStatDataPoints = [...frameStatDataPoints, ...newData];
+      if (frameStatDataPoints.length > maxPoints) {
+        frameStatDataPoints = frameStatDataPoints.slice(-maxPoints);
+      }
+
+      framerateCtx.clearRect(0, 0, framerateCanvas.width, framerateCanvas.height);
+
+      // 绘制 FPS 文本
+      framerateCtx.font = "15px Arial";
+      framerateCtx.fillText("FPS", 40, 30);
+
+      const config = chartConfig.framerate;
+      // 绘制折线图
+      framerateCtx.beginPath();
+      framerateCtx.strokeStyle = 'purple';
+      if (frameStatDataPoints.length > 0) {
+        frameStatDataPoints.forEach((data, index) => {
+          const x = index * (framerateCanvas.width / maxPoints);
+          const y = calculateYPos(data.framerate, config.maxValue, framerateCanvas.height);
+          if (index === 0) {
+            framerateCtx.moveTo(x, y);
+          } else {
+            framerateCtx.lineTo(x, y);
+          }
+        });
+      }
+      framerateCtx.stroke();
+
+      // 绘制 Y 轴刻度
+      drawYAxisScale(framerateCtx, config.maxValue, config.step, config.unit);
+
+      requestAnimationFrame(drawFramerateChart);
+    }
+
+    // 绘制比特率图表
+    function drawBitrateChart() {
+      bitrateCtx.clearRect(0, 0, bitrateCanvas.width, bitrateCanvas.height);
+
+      // 绘制比特率文本
+      bitrateCtx.font = "15px Arial";
+      bitrateCtx.fillText("Bitrate(Mbps)", 40, 30);
+
+      const config = chartConfig.bitrate;
+      // 绘制柱状图
+      if (frameStatDataPoints.length > 0) {
+        frameStatDataPoints.forEach((data, index) => {
+          const x = index * (bitrateCanvas.width / maxPoints);
+          const mbps = formatNumber(data.bitrateKbps / 1000);
+          const height = calculateYPos(0, config.maxValue, bitrateCanvas.height) 
+                        - calculateYPos(mbps, config.maxValue, bitrateCanvas.height);
+          bitrateCtx.fillStyle = 'cyan';
+          bitrateCtx.fillRect(x, calculateYPos(mbps, config.maxValue, bitrateCanvas.height),
+                             bitrateCanvas.width / maxPoints - 2, height);
+        });
+      }
+
+      // 绘制 Y 轴刻度
+      drawYAxisScale(bitrateCtx, config.maxValue, config.step, config.unit);
+
+      requestAnimationFrame(drawBitrateChart);
+    }
+
+    // 处理窗口大小改变事件
+    function resizeCanvases() {
+      const canvases = [sizeCanvas, qpCanvas, encodeCostCanvas, framerateCanvas, bitrateCanvas];
+      canvases.forEach(canvas => {
+        canvas.width = window.innerWidth - 20;
+        canvas.height = (window.innerHeight - 60) / 5;
+      });
+    }
+
+    window.addEventListener('resize', function() {
+      resizeCanvases();
+      drawSizeChart();
+      drawQpChart();
+      drawEncodeCostChart();
+      drawFramerateChart();
+      drawBitrateChart();
+    });
+
+    // 初始化 canvas 大小
+    resizeCanvases();
+
+    // 启动绘图循环
+    requestAnimationFrame(drawSizeChart);
+    requestAnimationFrame(drawQpChart);
+    requestAnimationFrame(drawEncodeCostChart);
+    requestAnimationFrame(drawFramerateChart);
+    requestAnimationFrame(drawBitrateChart);
+  </script>
+</body>
+</html>

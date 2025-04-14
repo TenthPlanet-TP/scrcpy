@@ -21,10 +21,18 @@ android {
         buildConfig true
         aidl true
     }
+
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
 }
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    // implementation fileTree(dir: 'libs', include: ['*.jar','*.aar'])
+    // implementation(name: 'utils_release_v1.0', ext: 'aar')
 }
 
 apply from: "$project.rootDir/config/android-checkstyle.gradle"

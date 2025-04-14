@@ -24,6 +24,7 @@ import com.genymobile.scrcpy.video.SurfaceCapture;
 import com.genymobile.scrcpy.video.SurfaceEncoder;
 import com.genymobile.scrcpy.video.VideoSource;
 
+
 import android.os.Build;
 
 import java.io.File;
@@ -157,7 +158,7 @@ public final class Server {
                 } else {
                     surfaceCapture = new CameraCapture(options);
                 }
-                SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options);
+                SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options, connection.getEncodeStatSender());
                 asyncProcessors.add(surfaceEncoder);
 
                 if (controller != null) {
