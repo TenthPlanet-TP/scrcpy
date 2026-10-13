@@ -104,13 +104,13 @@ public final class DesktopConnection implements Closeable {
                 if (control) {
                     controlSocket = connect(socketName);
                 }
-                try {
-                    encodeStatSender = new EncodeStatSender(socketName);
-                    encodeStatSender.start();
-                } catch (IOException e) {
-                    // the encode stat feature is optional, do not break mirroring on failure
-                    Ln.w("Failed to create EncodeStatSender: " + e);
-                }
+            }
+            try {
+                encodeStatSender = new EncodeStatSender(socketName);
+                encodeStatSender.start();
+            } catch (IOException e) {
+                // the encode stat feature is optional, do not break mirroring on failure
+                Ln.w("Failed to create EncodeStatSender: " + e);
             }
         } catch (IOException | RuntimeException e) {
             if (videoSocket != null) {

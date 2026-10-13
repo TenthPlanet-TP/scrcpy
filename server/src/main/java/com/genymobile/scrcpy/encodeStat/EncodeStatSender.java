@@ -26,8 +26,7 @@ public final class EncodeStatSender {
     private String abstractName;
 
     public EncodeStatSender(String name) throws IOException {
-        // this.abstractName = name + "_debug";
-        this.abstractName = "scrcpy_encode_stat";
+        this.abstractName = name + "_encode_stat";
         this.localServerSocket = new LocalServerSocket(abstractName);
     }
 

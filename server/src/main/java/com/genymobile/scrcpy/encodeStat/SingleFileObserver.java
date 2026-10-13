@@ -26,7 +26,7 @@ public class SingleFileObserver extends FileObserver {
     }
 
     public SingleFileObserver(File file, int mask) {
-        super(file, mask);
+        super(file.getPath(), mask);
         mFile = file;
         mMask = mask;
         Ln.d("listen dir: " + file.getAbsolutePath());

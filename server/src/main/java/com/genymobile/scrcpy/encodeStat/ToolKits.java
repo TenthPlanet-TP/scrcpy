@@ -2,15 +2,29 @@ package com.genymobile.scrcpy.encodeStat;
 
 import java.nio.ByteBuffer;
 
+import com.genymobile.scrcpy.util.Ln;
+
 
 public class ToolKits {
     public static final int kVideoCodecH264 = 4;
     public static final int kVideoCodecH265 = 6;
 
+    private static boolean nativeAvailable;
+
     static {
         // System.loadLibrary("webrtcLibsJni");
-        System.load("/data/local/tmp/libwebrtcLibsJni.so");
+        try {
+            System.load("/data/local/tmp/libwebrtcLibsJni.so");
+            nativeAvailable = true;
+        } catch (UnsatisfiedLinkError e) {
+            // the bitstream parser is optional (qp stats only), never break mirroring
+            Ln.w("libwebrtcLibsJni.so unavailable, qp stats disabled: " + e);
+            nativeAvailable = false;
+        }
+    }
 
+    static boolean isNativeAvailable() {
+        return nativeAvailable;
     }
 
     /*

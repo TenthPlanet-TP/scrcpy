@@ -28,22 +28,25 @@ public final class CodecUtils {
             format.setString(key, (String) value);
         }
     }
-
     public static void setCodecOption(MediaCodec codec, String key, Object value) {
+        Bundle params = new Bundle();
+        if (value instanceof Integer) {
+            params.putInt(key, (Integer) value);
+        } else if (value instanceof Long) {
+            params.putLong(key, (Long) value);
+        } else if (value instanceof Float) {
+            params.putFloat(key, (Float) value);
+        } else if (value instanceof String) {
+            params.putString(key, (String) value);
+        } else {
+            Ln.d("Ignored codec option with unsupported value type: " + key);
+            return;
+        }
         try {
-            Bundle params = new Bundle();
-            if (value instanceof Integer) {
-                params.putInt(key, (Integer) value);
-            } else if (value instanceof Long) {
-                params.putLong(key, (Long) value);
-            } else if (value instanceof Float) {
-                params.putFloat(key, (Float) value);
-            } else if (value instanceof String) {
-                params.putString(key, (String) value);
-            }
             codec.setParameters(params);
-        } catch (IllegalStateException e) {
-            e.printStackTrace();
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            // vendor encoders may reject unknown parameter keys; never break the video stream
+            Ln.e("Failed to set codec option \"" + key + "\": " + e);
         }
     }
 

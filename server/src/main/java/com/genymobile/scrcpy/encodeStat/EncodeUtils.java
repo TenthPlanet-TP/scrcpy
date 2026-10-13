@@ -35,15 +35,15 @@ public class EncodeUtils {
     private ToolKits toolKits = new ToolKits();
     private long mHandle = -1;
 
-    private OnParseCb onParseCb;
+    private volatile OnParseCb onParseCb;
 
     private SingleFileObserver mSingleFileObserver = null;
     private static final String LISTEN_DIR = "/data/local/tmp/";
     private static final String LISTEN_FILE = "/data/local/tmp/scrcpy.json";
 
-    private int mBitRateKbps = -1;
-    private int mMinQp = -1;
-    private int mMaxQp = -1;
+    private volatile int mBitRateKbps = -1;
+    private volatile int mMinQp = -1;
+    private volatile int mMaxQp = -1;
     private List<CodecOption> mCodecOptions;
 
     private WorkTask mExecutor = new WorkTask("EncodeUtils");
@@ -54,13 +54,19 @@ public class EncodeUtils {
 
     public boolean init(String mimeType) {
         Ln.i("create bitstream parser, codec: " + mimeType);
-        if (mimeType.equals("video/hevc")) {
-            mHandle = toolKits.nativeCreateBitstreamParser(ToolKits.kVideoCodecH265);
-        } else if (mimeType.equals("video/avc")) {
-            mHandle = toolKits.nativeCreateBitstreamParser(ToolKits.kVideoCodecH264);
+        if (ToolKits.isNativeAvailable()) {
+            if (mimeType.equals("video/hevc")) {
+                mHandle = toolKits.nativeCreateBitstreamParser(ToolKits.kVideoCodecH265);
+            } else if (mimeType.equals("video/avc")) {
+                mHandle = toolKits.nativeCreateBitstreamParser(ToolKits.kVideoCodecH264);
+            } else {
+                Ln.e("unsupported codec type: " + mimeType);
+                return false;
+            }
         } else {
-            Ln.e("unsupported codec type: " + mimeType);
-            return false;
+            // native bitstream parser unavailable: keep frame stats (qp=-1), never break mirroring
+            Ln.w("libwebrtcLibsJni.so unavailable, qp stats disabled");
+            mHandle = -1;
         }
 
         // mSingleFileObserver = new SingleFileObserver(new File(LISTEN_DIR), FileObserver.MODIFY);
@@ -75,7 +81,7 @@ public class EncodeUtils {
         onParseCb = cb;
     }
 
-    public void exit() {
+    public synchronized void exit() {
         Ln.i("release bitstream parser");
         if (mHandle != -1) {
             toolKits.nativeReleaseBitstreamParser(mHandle);
@@ -92,11 +98,12 @@ public class EncodeUtils {
     }
 
 
-    public void parseEncodeStream(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo) throws IOException {
-        if (mHandle == -1) {
-            Ln.e("bitstream parser not created");
+    public synchronized void parseEncodeStream(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo) throws IOException {
+        if (onParseCb == null) {
+            // no consumer for encode stats, skip per-frame work
             return;
         }
+
 
         long deltaMs = 0;
         long current_time = SystemClock.uptimeMillis();
@@ -154,12 +161,14 @@ public class EncodeUtils {
             prev_fbd = fbd;
         }
 
-        int ret = toolKits.nativeParseBitstream(mHandle, codecBuffer);
-        if (ret < 0) {
-            Ln.e("parse bitstream failed: " + ret);
-        } else {
-            ret = toolKits.nativeGetLastSliceQp(mHandle);
-            // Ln.d("parse bitstream success, qp: " + ret);
+        int ret = -1;
+        if (mHandle != -1) {
+            ret = toolKits.nativeParseBitstream(mHandle, codecBuffer);
+            if (ret < 0) {
+                Ln.e("parse bitstream failed: " + ret);
+            } else {
+                ret = toolKits.nativeGetLastSliceQp(mHandle);
+            }
         }
 
         JSONObject json = new JSONObject();
@@ -197,12 +206,10 @@ public class EncodeUtils {
         return new AbstractMap.SimpleEntry<>(mMinQp, mMaxQp);
     }
 
-    public synchronized List<CodecOption> getCodecOptions() {
-        return mCodecOptions;
-    }
-
-    public synchronized void clearCodecOptions() {
-        mCodecOptions.clear();
+    public synchronized List<CodecOption> drainCodecOptions() {
+        List<CodecOption> codecOptions = mCodecOptions;
+        mCodecOptions = null;
+        return codecOptions;
     }
 
     public class OnEventCallbackImpl implements SingleFileObserver.OnEventCallback {
@@ -216,10 +223,8 @@ public class EncodeUtils {
     }
 
     private String readFileAsString(String filePath) {
-        int cnt = 5;
-        File file = null;
-        do {
-            file = new File(filePath);
+        for (int i = 0; i < 5; i++) {
+            File file = new File(filePath);
             // 检查文件是否存在以及是否为空
             if (!file.exists()) {
                 Ln.e("file is not exist");
@@ -228,32 +233,28 @@ public class EncodeUtils {
 
             if (file.length() == 0) {
                 Ln.e("file is empty");
-                // return "";
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    Thread.currentThread().interrupt();
+                    return null;
                 }
                 continue;
             }
 
-            break;
-        } while (--cnt >= 0);
-        if (cnt <= 0) {
-            return "";
-        }
-
-        StringBuilder contentBuilder = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
-            String currentLine;
-            while ((currentLine = br.readLine()) != null) {
-                contentBuilder.append(currentLine);
+            StringBuilder contentBuilder = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+                String currentLine;
+                while ((currentLine = br.readLine()) != null) {
+                    contentBuilder.append(currentLine);
+                }
+            } catch (IOException e) {
+                Ln.e("readFileAsString failed: " + e);
+                return null;
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
+            return contentBuilder.toString();
         }
-        return contentBuilder.toString();
+        return "";
     }
     
     public void parseProtocol(String path) {

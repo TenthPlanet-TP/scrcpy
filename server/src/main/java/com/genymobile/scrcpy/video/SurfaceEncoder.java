@@ -89,14 +89,14 @@ public class SurfaceEncoder implements AsyncProcessor {
         capture.init(reset);
 
         if (encodeUtils.init(codec.getMimeType())) {
-            encodeUtils.setCallback(new EncodeUtils.OnParseCb() {
-                @Override
-                public void callback(String str) {
-                    if (encodeStatSender != null) {
+            if (encodeStatSender != null) {
+                encodeUtils.setCallback(new EncodeUtils.OnParseCb() {
+                    @Override
+                    public void callback(String str) {
                         encodeStatSender.send(str);
                     }
-                }
-            });
+                });
+            }
         } else {
             Ln.e("Failed to init encode utils");
             encodeUtils = null;
@@ -249,7 +249,7 @@ public class SurfaceEncoder implements AsyncProcessor {
                     if (encodeUtils != null) {
                         encodeUtils.parseEncodeStream(codecBuffer, bufferInfo);
 
-                        List<CodecOption> options = encodeUtils.getCodecOptions();
+                        List<CodecOption> options = encodeUtils.drainCodecOptions();
                         if (options != null && !options.isEmpty()) {
                             for (CodecOption option : options) {
                                 String key = option.getKey();
@@ -257,7 +257,6 @@ public class SurfaceEncoder implements AsyncProcessor {
                                 CodecUtils.setCodecOption(codec, key, value);
                                 Ln.d("Video codec option set: " + key + " (" + value.getClass().getSimpleName() + ") = " + value);
                             }
-                            encodeUtils.clearCodecOptions();
 
                         } else {
                             int bitrateKbps = encodeUtils.getEncodeBitRate();
