@@ -39,46 +39,52 @@ public final class EncodeStatSender {
         }
     }
 
-    private void loop() throws IOException, InterruptedException {
+    private void loop() throws IOException {
         Ln.i("listen localabstract:" + abstractName);
-        LocalSocket socket = null;
+        // accept 循环:client 断开后继续等待新连接。
+        // 注意:统计队列由所有 client 分摊,同一时刻建议只有一个监控客户端。
+        while (!Thread.currentThread().isInterrupted()) {
+            LocalSocket socket = localServerSocket.accept();
+            // 每 client 一个写线程:client 消失后写可能阻塞在已满的 socket 缓冲
+            // (unix socket 无写超时),独立线程避免拖死 accept 循环;daemon 线程随进程退出回收
+            Thread client = new Thread(() -> serveClient(socket), "encode-stat-client");
+            client.setDaemon(true);
+            client.start();
+        }
+    }
+
+    private void serveClient(LocalSocket socket) {
         DataOutputStream dos = null;
-
         try {
-            socket = localServerSocket.accept();
             dos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
-
             while (!Thread.currentThread().isInterrupted()) {
                 String msg = queue.take();
-                // Ln.d("queue take msg: " + msg);
-                // if (TERMINATE_MSG.equals(msg)) {
-                //     break; // 收到终止消息，退出循环
-                // }
                 msg += "\n";
-                byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
-                dos.write(bytes);
+                dos.write(msg.getBytes(StandardCharsets.UTF_8));
                 dos.flush();
             }
         } catch (IOException | InterruptedException e) {
-            Ln.d("EncodeStatSender loopInner failed: " + e);
+            Ln.d("EncodeStatSender client ended: " + e);
         } finally {
-            if (dos != null) {
-                Ln.d("close DataOutputStream");
-                dos.close();
+            Ln.d("close client socket");
+            try {
+                if (dos != null) {
+                    dos.close();
+                }
+            } catch (IOException ignored) {
             }
-            if (socket != null) {
-                Ln.d("close LocalSocket");
+            try {
                 socket.close();
+            } catch (IOException ignored) {
             }
         }
-        Ln.d("EncodeStatSender loop finished");
     }
 
     public void start() {
         thread = new Thread(() -> {
             try {
                 loop();
-            } catch (IOException | InterruptedException e) {
+            } catch (IOException e) {
                 // this is expected on close
                 Ln.e("EncodeStatSender loop failed: " + e);
             } finally {

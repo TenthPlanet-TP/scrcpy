@@ -1,301 +1,443 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Real-time Charts</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>scrcpy Encode Monitor</title>
   <style>
+    :root {
+      --bg: #0e1116;
+      --card: #161b23;
+      --border: #232b36;
+      --text: #d7dde6;
+      --muted: #7b8694;
+      --accent: #4f8ef7;
+      --ok: #2ecc8f;
+      --err: #f75f5f;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
-      padding: 10px;
+      padding: 10px 12px 12px;
       display: flex;
       flex-direction: column;
-      height: 100vh;
+      gap: 10px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.4 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      overflow: hidden;
     }
-    canvas {
-      border: 1px solid black;
-      margin-bottom: 10px;
+    header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: none;
+    }
+    header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .3px; }
+    #conn {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--muted); font-size: 12px;
+    }
+    #conn .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--err);
+    }
+    #conn.up .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+    #conn.up { color: var(--ok); }
+    header .spacer { flex: 1; }
+    button {
+      background: #1d242f;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 14px;
+      font: inherit;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    button:hover { background: #263042; border-color: #33405273; }
+    #pauseBtn.paused { border-color: #a9603a; color: #f5a623; }
+    main {
       flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: repeat(3, 1fr);
+      gap: 10px;
     }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .card-head {
+      flex: none;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 6px 10px 2px;
+    }
+    .card-title { font-size: 13px; font-weight: 600; }
+    .legend {
+      display: inline-flex; gap: 10px;
+      font-size: 11px; color: var(--muted);
+    }
+    .legend i {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 2px; margin-right: 4px; vertical-align: baseline;
+    }
+    .stats {
+      margin-left: auto;
+      font-size: 11px; color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .stats b { color: var(--text); font-weight: 600; }
+    .card canvas { flex: 1; min-height: 0; width: 100%; display: block; }
+    .card-foot {
+      flex: none;
+      display: flex; align-items: center; gap: 8px;
+      padding: 2px 10px 6px;
+      color: var(--muted); font-size: 11px;
+    }
+    input[type=range] {
+      flex: 1;
+      -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 2px;
+      background: #2a3340;
+      outline: none; margin: 0;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--accent);
+      cursor: ew-resize;
+      border: 2px solid #0e1116;
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent); border: none; cursor: ew-resize;
+    }
+    .win-label { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
-  <canvas id="sizeCanvas"></canvas>
-  <canvas id="qpCanvas"></canvas>
-  <canvas id="encodeCostCanvas"></canvas>
-  <canvas id="framerateCanvas"></canvas>
-  <canvas id="bitrateCanvas"></canvas>
+  <header>
+    <h1>scrcpy 编码监控</h1>
+    <span id="conn"><span class="dot"></span><span id="connText">连接中…</span></span>
+    <span class="spacer"></span>
+    <button id="clearBtn" title="清空所有图表数据">清空</button>
+    <button id="pauseBtn" title="暂停/继续接收数据">⏸ 暂停接收</button>
+  </header>
+  <main id="charts"></main>
+
   <script>
-    /*jshint browser:true*/
+  'use strict';
+  /* ------------------------------------------------------------------
+   * 图表配置:全部由该表驱动,新增曲线只需加一行
+   *   kind: 'bar' | 'line'
+   *   yMin/yMax: 纵轴范围; yStep: 细网格; yLabelStep: 刻度文字
+   *   src: 数据数组; get: 取值函数; scale: 显示前的换算(KB/Mbps)
+   * ------------------------------------------------------------------ */
+  var BITRATE_DIV = 1000; // server 的 kbps 为十进制(bits/s /1000),Mbps = /1000,与 MediaCodec/ffprobe 一致
 
-    // 获取 canvas 元素和上下文
-    const sizeCanvas = document.getElementById('sizeCanvas');
-    const sizeCtx = sizeCanvas.getContext('2d');
-    const qpCanvas = document.getElementById('qpCanvas');
-    const qpCtx = qpCanvas.getContext('2d');
-    const encodeCostCanvas = document.getElementById('encodeCostCanvas');
-    const encodeCostCtx = encodeCostCanvas.getContext('2d');
-    const framerateCanvas = document.getElementById('framerateCanvas');
-    const framerateCtx = framerateCanvas.getContext('2d');
-    const bitrateCanvas = document.getElementById('bitrateCanvas');
-    const bitrateCtx = bitrateCanvas.getContext('2d');
+  var frames = []; // {t, size, qp, cost, interval, key}
+  var stats  = []; // {t, fps, kbps}
 
-    // WebSocket 连接
-    const ws = new WebSocket('ws://localhost:9002', 'scrcpy');
-    const frameDataQueue = [];
-    const frameStatDataQueue = [];
-    let frameDataPoints = [];
-    let frameStatDataPoints = [];
-    const maxPoints = 100; // 最大显示点数
+  var CHARTS = [
+    { id: 'size',   title: 'FrameSize',       kind: 'bar',  color: '#4f8ef7',
+      yMin: 0, yMax: 350, yStep: 50, yLabelStep: 50, unit: 'K',
+      src: frames, get: function (d) { return d.size / 1024; }, digits: 0 },
+    { id: 'qp',     title: 'QP',              kind: 'line', color: '#2ecc8f',
+      yMin: 0, yMax: 60, yStep: 5, yLabelStep: 10, unit: '',
+      src: frames, get: function (d) { return d.qp; }, digits: 0 },
+    { id: 'cost',   title: 'encode_cost_ms',  kind: 'line', color: '#f5a623',
+      yMin: 0, yMax: 60, yStep: 10, yLabelStep: 10, unit: 'ms',
+      src: frames, get: function (d) { return d.cost; }, digits: 0 },
+    { id: 'interval', title: 'encode_interval_ms', kind: 'line', color: '#b57df0',
+      yMin: -30, yMax: 30, yStep: 10, yLabelStep: 10, unit: 'ms',
+      src: frames, get: function (d) { return d.interval; }, digits: 0 },
+    { id: 'fps',    title: 'FPS',             kind: 'line', color: '#38c8d8',
+      yMin: 0, yMax: 60, yStep: 5, yLabelStep: 10, unit: '',
+      src: stats, get: function (d) { return d.fps; }, digits: 0 },
+    { id: 'bitrate', title: 'Bitrate(kbps)',  kind: 'bar',  color: '#e8c558',
+      yMin: 0, yMax: 12, yStep: 3, yLabelStep: 3, unit: 'M',
+      src: stats, get: function (d) { return d.kbps / BITRATE_DIV; }, digits: 1 }
+  ];
 
-    // 添加图表配置对象
-    const chartConfig = {
-      size: { maxValue: 350, step: 50, unit: 'K' },
-      qp: { maxValue: 60, step: 10, unit: '' },
-      encodeCost: { maxValue: 60, step: 10, unit: '' },
-      framerate: { maxValue: 70, step: 10, unit: '' },
-      bitrate: { maxValue: 12, step: 3, unit: 'M' }
-    };
+  // 滑块档位:索引 -> 时间窗(秒),perfDog 式缩放
+  var WIN_STEPS = [2, 3, 5, 10, 15, 30, 60];
+  var MAX_WIN = WIN_STEPS[WIN_STEPS.length - 1];
 
-    // 处理 WebSocket 关闭事件
-    ws.onclose = function() {
-      console.log('WebSocket 连接已关闭', arguments);
-    };
-
-    // 处理 WebSocket 错误事件
-    ws.onerror = function() {
-      console.error('WebSocket 连接出错', arguments);
-      alert('WebSocket 连接出错，请检查服务器或网络');
-    };
-
-    // 处理 WebSocket 接收到消息事件
-    ws.onmessage = function(message) {
-      try {
-        const obj = JSON.parse(message.data);
-        if (obj.type === 'frame' && obj.data) {
-          frameDataQueue.push(obj.data);
-        } else if (obj.type === 'frameStat' && obj.data) {
-          frameStatDataQueue.push(obj.data);
-        }
-      } catch (err) {
-        console.error('JSON 解析失败：', message.data);
-      }
-    };
-
-    // 处理 WebSocket 打开事件
-    ws.onopen = function() {
-      console.log('WebSocket 连接已打开', arguments);
-    };
-
-    // 添加数值格式化函数
-    function formatNumber(num, digits = 1) {
-      return Number(num.toFixed(digits));
+  /* ---------------- DOM 构建 ---------------- */
+  var mainEl = document.getElementById('charts');
+  CHARTS.forEach(function (c) {
+    var card = document.createElement('section');
+    card.className = 'card';
+    var legendHtml = '';
+    if (c.id === 'size') {
+      legendHtml = '<span class="legend"><span><i style="background:' + c.color + '"></i>P</span>' +
+                   '<span><i style="background:#f75f5f"></i>I</span></span>';
+    } else {
+      legendHtml = '<span class="legend"><span><i style="background:' + c.color + '"></i></span></span>';
     }
+    card.innerHTML =
+      '<div class="card-head"><span class="card-title">' + c.title + '</span>' + legendHtml +
+      '<span class="stats"></span></div>' +
+      '<canvas></canvas>' +
+      '<div class="card-foot"><span>缩放</span><input type="range" min="0" max="' +
+      (WIN_STEPS.length - 1) + '" step="1" value="3"><span class="win-label">10s</span></div>';
+    mainEl.appendChild(card);
 
-    // 优化 Y 轴缩放计算函数
-    function calculateYPos(value, maxValue, height) {
-      return height - (value * height / maxValue);
-    }
-
-    // 绘制 Y 轴刻度的通用函数
-    function drawYAxisScale(ctx, maxValue, step, unit = '') {
-      ctx.font = "10px Arial";
-      ctx.fillStyle = 'black';
-      for (let i = 0; i <= maxValue; i += step) {
-        const y = ctx.canvas.height - (i * ctx.canvas.height / maxValue);
-        ctx.fillText(`${i}${unit}`, 2, y);
-      }
-    }
-
-    // 绘制帧大小图表
-    function drawSizeChart() {
-      // 处理队列中的数据
-      const newData = frameDataQueue.splice(0);
-      frameDataPoints = [...frameDataPoints, ...newData];
-      if (frameDataPoints.length > maxPoints) {
-        frameDataPoints = frameDataPoints.slice(-maxPoints);
-      }
-
-      sizeCtx.clearRect(0, 0, sizeCanvas.width, sizeCanvas.height);
-
-      // 绘制 FrameSize 文本
-      sizeCtx.font = "15px Arial";
-      sizeCtx.fillText("Frame size(K)", 40, 30);
-
-      const config = chartConfig.size;
-      // 绘制柱状图
-      if (frameDataPoints.length > 0) {
-        frameDataPoints.forEach((data, index) => {
-          const x = index * (sizeCanvas.width / maxPoints);
-          const sizeKB = formatNumber(data.size / 1024);
-          const height = calculateYPos(0, config.maxValue, sizeCanvas.height) 
-                        - calculateYPos(sizeKB, config.maxValue, sizeCanvas.height);
-          sizeCtx.fillStyle = data.isKeyFrame ? 'red' : 'blue';
-          sizeCtx.fillRect(x, calculateYPos(sizeKB, config.maxValue, sizeCanvas.height), 
-                          sizeCanvas.width / maxPoints - 2, height);
-        });
-      }
-
-      // 绘制 Y 轴刻度
-      drawYAxisScale(sizeCtx, config.maxValue, config.step, config.unit);
-
-      requestAnimationFrame(drawSizeChart);
-    }
-
-    // 绘制 QP 图表
-    function drawQpChart() {
-      qpCtx.clearRect(0, 0, qpCanvas.width, qpCanvas.height);
-
-      // 绘制 QP 文本
-      qpCtx.font = "15px Arial";
-      qpCtx.fillText("QP", 40, 30);
-
-      const config = chartConfig.qp;
-      // 绘制折线图
-      qpCtx.beginPath();
-      qpCtx.strokeStyle = 'green';
-      if (frameDataPoints.length > 0) {
-        frameDataPoints.forEach((data, index) => {
-          const x = index * (qpCanvas.width / maxPoints);
-          const y = calculateYPos(data.qp, config.maxValue, qpCanvas.height);
-          if (index === 0) {
-            qpCtx.moveTo(x, y);
-          } else {
-            qpCtx.lineTo(x, y);
-          }
-        });
-      }
-      qpCtx.stroke();
-
-      // 绘制 Y 轴刻度
-      drawYAxisScale(qpCtx, config.maxValue, config.step, config.unit);
-
-      requestAnimationFrame(drawQpChart);
-    }
-
-    // 绘制编码成本图表
-    function drawEncodeCostChart() {
-      encodeCostCtx.clearRect(0, 0, encodeCostCanvas.width, encodeCostCanvas.height);
-
-      // 绘制 encode_cost_ms 文本
-      encodeCostCtx.font = "15px Arial";
-      encodeCostCtx.fillText("Encode cost(ms)", 40, 30);
-
-      const config = chartConfig.encodeCost;
-      // 绘制折线图
-      encodeCostCtx.beginPath();
-      encodeCostCtx.strokeStyle = 'orange';
-      if (frameDataPoints.length > 0) {
-        frameDataPoints.forEach((data, index) => {
-          const x = index * (encodeCostCanvas.width / maxPoints);
-          const y = calculateYPos(data.encode_cost_ms, config.maxValue, encodeCostCanvas.height);
-          if (index === 0) {
-            encodeCostCtx.moveTo(x, y);
-          } else {
-            encodeCostCtx.lineTo(x, y);
-          }
-        });
-      }
-      encodeCostCtx.stroke();
-
-      // 绘制 Y 轴刻度
-      drawYAxisScale(encodeCostCtx, config.maxValue, config.step, config.unit);
-
-      requestAnimationFrame(drawEncodeCostChart);
-    }
-
-    // 绘制帧率图表
-    function drawFramerateChart() {
-      // 处理队列中的数据
-      const newData = frameStatDataQueue.splice(0);
-      frameStatDataPoints = [...frameStatDataPoints, ...newData];
-      if (frameStatDataPoints.length > maxPoints) {
-        frameStatDataPoints = frameStatDataPoints.slice(-maxPoints);
-      }
-
-      framerateCtx.clearRect(0, 0, framerateCanvas.width, framerateCanvas.height);
-
-      // 绘制 FPS 文本
-      framerateCtx.font = "15px Arial";
-      framerateCtx.fillText("FPS", 40, 30);
-
-      const config = chartConfig.framerate;
-      // 绘制折线图
-      framerateCtx.beginPath();
-      framerateCtx.strokeStyle = 'purple';
-      if (frameStatDataPoints.length > 0) {
-        frameStatDataPoints.forEach((data, index) => {
-          const x = index * (framerateCanvas.width / maxPoints);
-          const y = calculateYPos(data.framerate, config.maxValue, framerateCanvas.height);
-          if (index === 0) {
-            framerateCtx.moveTo(x, y);
-          } else {
-            framerateCtx.lineTo(x, y);
-          }
-        });
-      }
-      framerateCtx.stroke();
-
-      // 绘制 Y 轴刻度
-      drawYAxisScale(framerateCtx, config.maxValue, config.step, config.unit);
-
-      requestAnimationFrame(drawFramerateChart);
-    }
-
-    // 绘制比特率图表
-    function drawBitrateChart() {
-      bitrateCtx.clearRect(0, 0, bitrateCanvas.width, bitrateCanvas.height);
-
-      // 绘制比特率文本
-      bitrateCtx.font = "15px Arial";
-      bitrateCtx.fillText("Bitrate(Mbps)", 40, 30);
-
-      const config = chartConfig.bitrate;
-      // 绘制柱状图
-      if (frameStatDataPoints.length > 0) {
-        frameStatDataPoints.forEach((data, index) => {
-          const x = index * (bitrateCanvas.width / maxPoints);
-          const mbps = formatNumber(data.bitrateKbps / 1000);
-          const height = calculateYPos(0, config.maxValue, bitrateCanvas.height) 
-                        - calculateYPos(mbps, config.maxValue, bitrateCanvas.height);
-          bitrateCtx.fillStyle = 'cyan';
-          bitrateCtx.fillRect(x, calculateYPos(mbps, config.maxValue, bitrateCanvas.height),
-                             bitrateCanvas.width / maxPoints - 2, height);
-        });
-      }
-
-      // 绘制 Y 轴刻度
-      drawYAxisScale(bitrateCtx, config.maxValue, config.step, config.unit);
-
-      requestAnimationFrame(drawBitrateChart);
-    }
-
-    // 处理窗口大小改变事件
-    function resizeCanvases() {
-      const canvases = [sizeCanvas, qpCanvas, encodeCostCanvas, framerateCanvas, bitrateCanvas];
-      canvases.forEach(canvas => {
-        canvas.width = window.innerWidth - 20;
-        canvas.height = (window.innerHeight - 60) / 5;
-      });
-    }
-
-    window.addEventListener('resize', function() {
-      resizeCanvases();
-      drawSizeChart();
-      drawQpChart();
-      drawEncodeCostChart();
-      drawFramerateChart();
-      drawBitrateChart();
+    c.canvas = card.querySelector('canvas');
+    c.ctx = c.canvas.getContext('2d');
+    c.statsEl = card.querySelector('.stats');
+    c.slider = card.querySelector('input[type=range]');
+    c.winLabel = card.querySelector('.win-label');
+    c.win = WIN_STEPS[+c.slider.value];
+    c.slider.addEventListener('input', function () {
+      c.win = WIN_STEPS[+c.slider.value];
+      c.winLabel.textContent = c.win + 's';
     });
+  });
 
-    // 初始化 canvas 大小
-    resizeCanvases();
+  /* ---------------- 数据接收 ----------------
+   * onmessage 只做入队(不解析、不绘制),解析摊到绘制帧,
+   * 暂停期间消息在此直接丢弃(需求 12:不缓存、丢失即可)。 */
+  var pendingRaw = [];
+  var paused = false;
+  var prevPtsMs = -1;
+  var ws = null;
+  var reconnectTimer = null;
 
-    // 启动绘图循环
-    requestAnimationFrame(drawSizeChart);
-    requestAnimationFrame(drawQpChart);
-    requestAnimationFrame(drawEncodeCostChart);
-    requestAnimationFrame(drawFramerateChart);
-    requestAnimationFrame(drawBitrateChart);
+  function connect() {
+    var conn = document.getElementById('conn');
+    var connText = document.getElementById('connText');
+    ws = new WebSocket('ws://' + location.hostname + ':9002', 'scrcpy');
+    ws.onopen = function () {
+      conn.classList.add('up');
+      connText.textContent = '已连接';
+    };
+    ws.onmessage = function (ev) {
+      if (!paused) pendingRaw.push(ev.data);
+    };
+    ws.onclose = function () { scheduleReconnect(); };
+    ws.onerror = function () { ws.close(); };
+  }
+
+  function scheduleReconnect() {
+    var conn = document.getElementById('conn');
+    var connText = document.getElementById('connText');
+    conn.classList.remove('up');
+    connText.textContent = '已断开,重连中…';
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(function () {
+      reconnectTimer = null;
+      connect();
+    }, 2000);
+  }
+  connect();
+
+  // 绘制帧内批量解析;interval 由相邻 pts_ms 差推导(server 未下发该字段)
+  function drainPending() {
+    if (!pendingRaw.length) return;
+    var batch = pendingRaw;
+    pendingRaw = [];
+    for (var i = 0; i < batch.length; i++) {
+      var obj;
+      try { obj = JSON.parse(batch[i]); } catch (e) { continue; }
+      if (!obj || !obj.data) continue;
+      var now = performance.now() / 1000;
+      if (obj.type === 'frame') {
+        var d = obj.data;
+        // 首帧 pts=0、次帧跳到设备 uptime(基线跳变),差值>1s 视为无效
+        var dv = d.pts_ms - prevPtsMs;
+        var interval = (prevPtsMs >= 0 && dv >= 0 && dv <= 1000) ? dv : null;
+        prevPtsMs = d.pts_ms;
+        frames.push({ t: now, size: d.size, qp: d.qp, cost: d.encode_cost_ms,
+                      interval: interval, key: !!d.isKeyFrame });
+      } else if (obj.type === 'frameStat') {
+        stats.push({ t: now, fps: obj.data.framerate, kbps: obj.data.bitrateKbps });
+      }
+    }
+    // 只保留最大窗口内的数据,防止内存无限增长
+    var cutoff = performance.now() / 1000 - MAX_WIN - 1;
+    trimTo(frames, cutoff);
+    trimTo(stats, cutoff);
+  }
+
+  function trimTo(arr, cutoff) {
+    var i = 0;
+    while (i < arr.length && arr[i].t < cutoff) i++;
+    if (i > 0) arr.splice(0, i);
+  }
+
+  /* ---------------- 控件 ---------------- */
+  var pauseBtn = document.getElementById('pauseBtn');
+  pauseBtn.addEventListener('click', function () {
+    paused = !paused;
+    pauseBtn.classList.toggle('paused', paused);
+    pauseBtn.textContent = paused ? '▶ 继续接收' : '⏸ 暂停接收';
+    if (!paused) { prevPtsMs = -1; pendingRaw.length = 0; }
+  });
+  document.getElementById('clearBtn').addEventListener('click', function () {
+    frames.length = 0;
+    stats.length = 0;
+    prevPtsMs = -1;
+  });
+
+  /* ---------------- 绘制 ---------------- */
+  var GRID = '#232b36';
+  var GRID_MINOR = '#1b212b';
+  var AXIS_TEXT = '#7b8694';
+
+  function setupCanvas(c) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = c.canvas.clientWidth, h = c.canvas.clientHeight;
+    if (!w || !h) return;
+    if (c.canvas.width !== Math.round(w * dpr) || c.canvas.height !== Math.round(h * dpr)) {
+      c.canvas.width = Math.round(w * dpr);
+      c.canvas.height = Math.round(h * dpr);
+    }
+    c.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.w = w; c.h = h;
+    c.padL = 44; c.padR = 10; c.padT = 6; c.padB = 18;
+  }
+
+  function niceXStep(win) {
+    var raw = win / 8;
+    var steps = [1, 2, 5, 10, 15, 30];
+    for (var i = 0; i < steps.length; i++) if (steps[i] >= raw) return steps[i];
+    return 30;
+  }
+
+  function drawChart(c, tNow) {
+    setupCanvas(c);
+    var ctx = c.ctx;
+    if (!c.w) return;
+    ctx.clearRect(0, 0, c.w, c.h);
+    var padL = c.padL, padR = c.padR, padT = c.padT, padB = c.padB;
+    var plotW = c.w - padL - padR, plotH = c.h - padT - padB;
+    var t0 = tNow - c.win;
+
+    function xOf(t) { return padL + (t - t0) / c.win * plotW; }
+    function yOf(v) { return padT + (1 - (v - c.yMin) / (c.yMax - c.yMin)) * plotH; }
+
+    // ---- 网格 + Y 刻度 ----
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = AXIS_TEXT;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    var minor = c.yStep <= 5 ? c.yStep / 5 * 5 : c.yStep; // QP/FPS 细网格 5
+    for (var v = c.yMin; v <= c.yMax + 1e-9; v += (c.yStep <= 5 ? 5 : c.yStep)) {
+      var y = yOf(v);
+      ctx.strokeStyle = GRID_MINOR;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(c.w - padR, y); ctx.stroke();
+    }
+    for (v = c.yMin; v <= c.yMax + 1e-9; v += c.yLabelStep) {
+      y = yOf(v);
+      ctx.strokeStyle = GRID;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(c.w - padR, y); ctx.stroke();
+      ctx.fillText(String(Math.round(v)), padL - 6, y);
+    }
+
+    // ---- X 刻度(相对会话起点的秒) ----
+    var xStep = niceXStep(c.win);
+    var tSession = tNow - sessionStart;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var tFirst = Math.ceil((t0 - sessionStart) / xStep) * xStep + sessionStart;
+    for (var t = tFirst; t <= tNow + 1e-9; t += xStep) {
+      var x = xOf(t);
+      ctx.strokeStyle = GRID;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      ctx.fillText(String(Math.round(t - sessionStart)), x, padT + plotH + 4);
+    }
+
+    // ---- 窗口内数据 + 统计 ----
+    var arr = c.src, i0 = 0;
+    while (i0 < arr.length && arr[i0].t < t0) i0++;
+    var pts = [];
+    for (var i = i0; i < arr.length; i++) {
+      var val = c.get(arr[i]);
+      if (val != null && isFinite(val)) pts.push({ x: xOf(arr[i].t), v: val, d: arr[i] });
+    }
+    if (pts.length) {
+      var minV = Infinity, maxV = -Infinity, sum = 0;
+      for (i = 0; i < pts.length; i++) {
+        var pv = pts[i].v;
+        if (pv < minV) minV = pv;
+        if (pv > maxV) maxV = pv;
+        sum += pv;
+      }
+      var last = pts[pts.length - 1].v;
+      c.statsEl.innerHTML = 'cur <b>' + last.toFixed(c.digits) + '</b>' +
+        ' max <b>' + maxV.toFixed(c.digits) + '</b>' +
+        ' avg <b>' + (sum / pts.length).toFixed(c.digits) + '</b>' + c.unit;
+      // 超出 Y 轴上限的值(如 cost 偶发 >60ms)裁剪在绘图区内,贴顶显示
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(padL, padT, plotW, plotH);
+      ctx.clip();
+      if (c.kind === 'bar') {
+        var slot = Math.max(plotW / (c.win * (c.id === 'size' ? 60 : 1)) - 1, 1);
+        slot = Math.min(slot, 18);
+        for (i = 0; i < pts.length; i++) {
+          var p = pts[i];
+          var yv = yOf(p.v);
+          ctx.fillStyle = (c.id === 'size' && p.d.key) ? '#f75f5f' : c.color;
+          ctx.fillRect(p.x - slot / 2, yv, slot, padT + plotH - yv);
+        }
+      } else {
+        ctx.strokeStyle = c.color;
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        var started = false;
+        for (i = 0; i < pts.length; i++) {
+          var q = pts[i];
+          if (!started) { ctx.moveTo(q.x, yOf(q.v)); started = true; }
+          else ctx.lineTo(q.x, yOf(q.v));
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+      ctx.restore();
+    } else {
+      c.statsEl.textContent = '等待数据…';
+    }
+
+    // ---- 零线加亮(interval 图负值区) ----
+    if (c.yMin < 0) {
+      var yz = yOf(0);
+      ctx.strokeStyle = '#3a4452';
+      ctx.beginPath(); ctx.moveTo(padL, yz); ctx.lineTo(c.w - padR, yz); ctx.stroke();
+    }
+    // 边框
+    ctx.strokeStyle = GRID;
+    ctx.strokeRect(padL, padT, plotW, plotH);
+  }
+
+  var sessionStart = performance.now() / 1000;
+
+  function tick() {
+    if (!paused) {
+      drainPending();
+      var tNow = performance.now() / 1000;
+      for (var i = 0; i < CHARTS.length; i++) drawChart(CHARTS[i], tNow);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // 尺寸自适应(canvas 由 CSS 撑开,此处仅需触发重绘,tick 每帧 setupCanvas)
+  window.addEventListener('resize', function () {}, { passive: true });
   </script>
 </body>
 </html>
