@@ -17,15 +17,18 @@ import android.system.ErrnoException;
 
 public final class EncodeStatSender {
 
+    private static final long JOIN_TIMEOUT_MS = 1000;
+
     private Thread thread;
     private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(600); // 60fps * 10s   // 30fps * 20s
     // private static final String TERMINATE_MSG = "__TERMINATE__"; // 特殊的终止消息
-    private LocalServerSocket localServerSocket;
+    private final LocalServerSocket localServerSocket;
     private String abstractName;
 
-    public EncodeStatSender(String name) {
+    public EncodeStatSender(String name) throws IOException {
         // this.abstractName = name + "_debug";
         this.abstractName = "scrcpy_encode_stat";
+        this.localServerSocket = new LocalServerSocket(abstractName);
     }
 
     public void send(String msg) {
@@ -43,7 +46,6 @@ public final class EncodeStatSender {
         DataOutputStream dos = null;
 
         try {
-            localServerSocket = new LocalServerSocket(abstractName);
             socket = localServerSocket.accept();
             dos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
 
@@ -69,11 +71,6 @@ public final class EncodeStatSender {
                 Ln.d("close LocalSocket");
                 socket.close();
             }
-            if (localServerSocket != null) {
-                Ln.d("close LocalServerSocket");
-                localServerSocket.close();
-                localServerSocket = null;
-            }
         }
         Ln.d("EncodeStatSender loop finished");
     }
@@ -89,6 +86,7 @@ public final class EncodeStatSender {
                 Ln.d("EncodeStatSender loop stopped");
             }
         }, "encode-stat-send");
+        thread.setDaemon(true);
         thread.start();
     }
 
@@ -98,20 +96,18 @@ public final class EncodeStatSender {
             thread.interrupt();
             // queue.offer(TERMINATE_MSG); // 向队列中添加终止消息
 
-            if (localServerSocket != null) {
-                try {
-                    Ln.d("shutdown LocalServerSocket");
-                    Os.shutdown(localServerSocket.getFileDescriptor(), OsConstants.SHUT_RDWR);
-                } catch (ErrnoException e) {
-                    e.printStackTrace();
-                }
+            try {
+                Ln.d("shutdown LocalServerSocket");
+                Os.shutdown(localServerSocket.getFileDescriptor(), OsConstants.SHUT_RDWR);
+            } catch (ErrnoException e) {
+                Ln.e("Failed to shutdown LocalServerSocket: " + e);
+            }
 
-                try {
-                    Ln.d("close LocalServerSocket");
-                    localServerSocket.close(); // 关闭 LocalServerSocket 以中断 accept()
-                } catch (IOException e) {
-                    Ln.e("Failed to close LocalServerSocket: " + e);
-                }
+            try {
+                Ln.d("close LocalServerSocket");
+                localServerSocket.close(); // 关闭 LocalServerSocket 以中断 accept()
+            } catch (IOException e) {
+                Ln.e("Failed to close LocalServerSocket: " + e);
             }
         }
     }
@@ -119,7 +115,10 @@ public final class EncodeStatSender {
     public void join() throws InterruptedException {
         if (thread != null) {
             Ln.d("EncodeStatSender join start");
-            thread.join();
+            thread.join(JOIN_TIMEOUT_MS);
+            if (thread.isAlive()) {
+                Ln.w("EncodeStatSender join timeout");
+            }
             Ln.d("EncodeStatSender joined end");
         }
     }
