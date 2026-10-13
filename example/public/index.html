@@ -151,23 +151,23 @@
   var stats  = []; // {t, fps, kbps}
 
   var CHARTS = [
-    { id: 'size',   title: 'FrameSize',       kind: 'bar',  color: '#4f8ef7',
-      yMin: 0, yMax: 350, yStep: 50, yLabelStep: 50, unit: 'K',
+    { id: 'size',   title: 'FrameSize(KB)',   kind: 'bar',  color: '#4f8ef7',
+      yMin: 0, yMax: 350, yStep: 50, yLabelStep: 50, unit: '',
       src: frames, get: function (d) { return d.size / 1024; }, digits: 0 },
     { id: 'qp',     title: 'QP',              kind: 'line', color: '#2ecc8f',
       yMin: 0, yMax: 60, yStep: 5, yLabelStep: 10, unit: '',
       src: frames, get: function (d) { return d.qp; }, digits: 0 },
-    { id: 'cost',   title: 'encode_cost_ms',  kind: 'line', color: '#f5a623',
-      yMin: 0, yMax: 60, yStep: 10, yLabelStep: 10, unit: 'ms',
+    { id: 'cost',   title: 'encode_cost(ms)', kind: 'line', color: '#f5a623',
+      yMin: 0, yMax: 60, yStep: 10, yLabelStep: 10, unit: '',
       src: frames, get: function (d) { return d.cost; }, digits: 0 },
-    { id: 'interval', title: 'encode_interval_ms', kind: 'line', color: '#b57df0',
-      yMin: -30, yMax: 30, yStep: 10, yLabelStep: 10, unit: 'ms',
-      src: frames, get: function (d) { return d.interval; }, digits: 0 },
+    { id: 'interval', title: 'interval_jitter(ms)', kind: 'line', color: '#b57df0',
+      yMin: -20, yMax: 20, yStep: 5, yLabelStep: 10, unit: '',
+      src: frames, get: function (d) { return d.jitter; }, digits: 0 },
     { id: 'fps',    title: 'FPS',             kind: 'line', color: '#38c8d8',
       yMin: 0, yMax: 60, yStep: 5, yLabelStep: 10, unit: '',
       src: stats, get: function (d) { return d.fps; }, digits: 0 },
-    { id: 'bitrate', title: 'Bitrate(kbps)',  kind: 'bar',  color: '#e8c558',
-      yMin: 0, yMax: 12, yStep: 3, yLabelStep: 3, unit: 'M',
+    { id: 'bitrate', title: 'Bitrate(Mbps)',  kind: 'bar',  color: '#e8c558',
+      yMin: 0, yMax: 12, yStep: 3, yLabelStep: 3, unit: '',
       src: stats, get: function (d) { return d.kbps / BITRATE_DIV; }, digits: 1 }
   ];
 
@@ -213,6 +213,7 @@
   var pendingRaw = [];
   var paused = false;
   var prevPtsMs = -1;
+  var intervalBase = -1; // 帧间隔慢速 EMA 基准,自适应 30/60fps
   var ws = null;
   var reconnectTimer = null;
 
@@ -260,8 +261,15 @@
         var dv = d.pts_ms - prevPtsMs;
         var interval = (prevPtsMs >= 0 && dv >= 0 && dv <= 1000) ? dv : null;
         prevPtsMs = d.pts_ms;
+        // jitter = 当前间隔 - 慢速基准:丢帧时正向尖峰,不随个别尖峰漂移
+        var jitter = null;
+        if (interval != null) {
+          if (intervalBase < 0) intervalBase = interval;
+          else intervalBase += (interval - intervalBase) * 0.02;
+          jitter = Math.round(interval - intervalBase);
+        }
         frames.push({ t: now, size: d.size, qp: d.qp, cost: d.encode_cost_ms,
-                      interval: interval, key: !!d.isKeyFrame });
+                      interval: interval, jitter: jitter, key: !!d.isKeyFrame });
       } else if (obj.type === 'frameStat') {
         stats.push({ t: now, fps: obj.data.framerate, kbps: obj.data.bitrateKbps });
       }
@@ -284,12 +292,13 @@
     paused = !paused;
     pauseBtn.classList.toggle('paused', paused);
     pauseBtn.textContent = paused ? '▶ 继续接收' : '⏸ 暂停接收';
-    if (!paused) { prevPtsMs = -1; pendingRaw.length = 0; }
+    if (!paused) { prevPtsMs = -1; intervalBase = -1; pendingRaw.length = 0; }
   });
   document.getElementById('clearBtn').addEventListener('click', function () {
     frames.length = 0;
     stats.length = 0;
     prevPtsMs = -1;
+    intervalBase = -1;
   });
 
   /* ---------------- 绘制 ---------------- */
