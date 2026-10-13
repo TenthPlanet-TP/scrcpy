@@ -6,8 +6,10 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
@@ -20,7 +22,9 @@ public final class EncodeStatSender {
     private static final long JOIN_TIMEOUT_MS = 1000;
 
     private Thread thread;
-    private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(600); // 60fps * 10s   // 30fps * 20s
+    // 每 client 独立队列:send 广播到所有 client,各自拿到完整流(不分摊,
+    // 否则多监控端并存时 pts 间隔翻倍、统计失真);断开由写线程自行移除
+    private final List<ClientHandler> clients = new CopyOnWriteArrayList<>();
     // private static final String TERMINATE_MSG = "__TERMINATE__"; // 特殊的终止消息
     private final LocalServerSocket localServerSocket;
     private String abstractName;
@@ -31,54 +35,75 @@ public final class EncodeStatSender {
     }
 
     public void send(String msg) {
-        if (!queue.offer(msg)) {
-            // 修改代码，当消息队列满时，丢弃最早的消息，并打印它，然后保留最新的消息
-            String tmp = queue.poll();
-            queue.offer(msg);
-            Ln.d("Device message dropped: " + tmp);
+        for (ClientHandler client : clients) {
+            client.enqueue(msg);
         }
     }
 
     private void loop() throws IOException {
         Ln.i("listen localabstract:" + abstractName);
-        // accept 循环:client 断开后继续等待新连接。
-        // 注意:统计队列由所有 client 分摊,同一时刻建议只有一个监控客户端。
+        // accept 循环:client 断开后继续等待新连接
         while (!Thread.currentThread().isInterrupted()) {
             LocalSocket socket = localServerSocket.accept();
             // 每 client 一个写线程:client 消失后写可能阻塞在已满的 socket 缓冲
             // (unix socket 无写超时),独立线程避免拖死 accept 循环;daemon 线程随进程退出回收
-            Thread client = new Thread(() -> serveClient(socket), "encode-stat-client");
-            client.setDaemon(true);
+            ClientHandler client = new ClientHandler(socket);
+            clients.add(client);
             client.start();
         }
     }
 
-    private void serveClient(LocalSocket socket) {
-        DataOutputStream dos = null;
-        try {
-            dos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
-            while (!Thread.currentThread().isInterrupted()) {
-                String msg = queue.take();
-                msg += "\n";
-                dos.write(msg.getBytes(StandardCharsets.UTF_8));
-                dos.flush();
+    private final class ClientHandler extends Thread {
+
+        private final LocalSocket socket;
+        // 60fps * 10s / 30fps * 20s;满则丢最旧保最新
+        private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(600);
+
+        ClientHandler(LocalSocket socket) {
+            super("encode-stat-client");
+            this.socket = socket;
+            setDaemon(true);
+        }
+
+        void enqueue(String msg) {
+            if (!queue.offer(msg)) {
+                String tmp = queue.poll();
+                queue.offer(msg);
+                Ln.d("Device message dropped: " + tmp);
             }
-        } catch (IOException | InterruptedException e) {
-            Ln.d("EncodeStatSender client ended: " + e);
-        } finally {
-            Ln.d("close client socket");
+        }
+
+        @Override
+        public void run() {
+            DataOutputStream dos = null;
             try {
-                if (dos != null) {
-                    dos.close();
+                dos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+                while (!isInterrupted()) {
+                    String msg = queue.take();
+                    msg += "\n";
+                    dos.write(msg.getBytes(StandardCharsets.UTF_8));
+                    dos.flush();
                 }
-            } catch (IOException ignored) {
-            }
-            try {
-                socket.close();
-            } catch (IOException ignored) {
+            } catch (IOException | InterruptedException e) {
+                Ln.d("EncodeStatSender client ended: " + e);
+            } finally {
+                clients.remove(this);
+                Ln.d("close client socket");
+                try {
+                    if (dos != null) {
+                        dos.close();
+                    }
+                } catch (IOException ignored) {
+                }
+                try {
+                    socket.close();
+                } catch (IOException ignored) {
+                }
             }
         }
     }
+
+
 
     public void start() {
         thread = new Thread(() -> {
