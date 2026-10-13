@@ -129,7 +129,7 @@
 </head>
 <body>
   <header>
-    <h1>scrcpy 编码监控</h1>
+    <h1>编码监控</h1>
     <span id="conn"><span class="dot"></span><span id="connText">连接中…</span></span>
     <span class="spacer"></span>
     <button id="clearBtn" title="清空所有图表数据">清空</button>
@@ -161,10 +161,10 @@
       yMin: 0, yMax: 60, yStep: 10, yLabelStep: 10, unit: '',
       src: frames, get: function (d) { return d.cost; }, digits: 0 },
     { id: 'interval', title: 'interval_jitter(ms)', kind: 'line', color: '#b57df0',
-      yMin: -20, yMax: 20, yStep: 5, yLabelStep: 10, unit: '',
+      yMin: -15, yMax: 15, yStep: 5, yLabelStep: 5, unit: '',
       src: frames, get: function (d) { return d.jitter; }, digits: 0 },
     { id: 'fps',    title: 'FPS',             kind: 'line', color: '#38c8d8',
-      yMin: 0, yMax: 60, yStep: 5, yLabelStep: 10, unit: '',
+      yMin: 0, yMax: 75, yStep: 5, yLabelStep: 15, unit: '',
       src: stats, get: function (d) { return d.fps; }, digits: 0 },
     { id: 'bitrate', title: 'Bitrate(Mbps)',  kind: 'bar',  color: '#e8c558',
       yMin: 0, yMax: 12, yStep: 3, yLabelStep: 3, unit: '',
@@ -435,12 +435,19 @@
 
   var sessionStart = performance.now() / 1000;
 
+  var pauseT = -1; // 暂停时刻的时间基准:冻结窗口,图表仍可缩放交互
+
   function tick() {
-    if (!paused) {
+    var tNow;
+    if (paused) {
+      if (pauseT < 0) pauseT = performance.now() / 1000;
+      tNow = pauseT;
+    } else {
+      pauseT = -1;
       drainPending();
-      var tNow = performance.now() / 1000;
-      for (var i = 0; i < CHARTS.length; i++) drawChart(CHARTS[i], tNow);
+      tNow = performance.now() / 1000;
     }
+    for (var i = 0; i < CHARTS.length; i++) drawChart(CHARTS[i], tNow);
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
