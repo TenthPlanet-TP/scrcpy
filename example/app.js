@@ -6,6 +6,7 @@ var WebSocketServer = require('ws').Server
   , app = express()
 
 var PORT = process.env.PORT || 9002
+  , FWD_PORT = process.env.FWD_PORT || 1717; // adb forward 到统计 socket 的本地端口
 
 app.use(express.static(path.join(__dirname, '/public')))
 
@@ -15,7 +16,7 @@ var wss = new WebSocketServer({ server: server })
 wss.on('connection', function(ws) {
   console.info('Got a client')
 
-	const stream = net.createConnection({ port: 1717 }, () => {
+	const stream = net.createConnection({ port: FWD_PORT }, () => {
 	  console.log('Connected to server!');
 	});
 

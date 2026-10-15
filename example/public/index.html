@@ -35,16 +35,23 @@
       flex: none;
     }
     header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .3px; }
-    #conn {
-      display: inline-flex; align-items: center; gap: 6px;
-      color: var(--muted); font-size: 12px;
-    }
-    #conn .dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--err);
-    }
-    #conn.up .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
     #conn.up { color: var(--ok); }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      color: var(--muted); font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .badge b { color: var(--text); font-weight: 600; }
+    .badge.alert b { color: var(--err); }
+    .ymax {
+      color: var(--muted); font-size: 11px; line-height: 1;
+      padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px;
+      cursor: pointer; user-select: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .ymax:hover { color: var(--text); }
+    .legend span { cursor: pointer; }
+    .legend span.off { opacity: .35; }
     header .spacer { flex: 1; }
     button {
       background: #1d242f;
@@ -131,8 +138,11 @@
   <header>
     <h1>编码监控</h1>
     <span id="conn"><span class="dot"></span><span id="connText">连接中…</span></span>
+    <span class="badge" id="badgeInOut" title="in=显示层产帧间隔(pts 差) out=编码器出帧间隔(ts 差);两者同步变化→显示层产帧不足,in 正常 out 成簇→编码器攒帧">in <b>--</b>/out <b>--</b>ms</span>
+    <span class="badge" id="badgeDrop" title="广播队列丢帧(server seq 跳变累计);非 0 时当前曲线不完整">丢帧 <b>0</b></span>
     <span class="spacer"></span>
     <button id="clearBtn" title="清空所有图表数据">清空</button>
+    <button id="exportBtn" title="导出当前窗口的帧级数据为 CSV">导出 CSV</button>
     <button id="pauseBtn" title="暂停/继续接收数据">⏸ 暂停接收</button>
   </header>
   <main id="charts"></main>
@@ -147,8 +157,9 @@
    * ------------------------------------------------------------------ */
   var BITRATE_DIV = 1000; // server 的 kbps 为十进制(bits/s /1000),Mbps = /1000,与 MediaCodec/ffprobe 一致
 
-  var frames = []; // {t, size, qp, cost, interval, key}
+  var frames = []; // {t, size, qp, cost, interval, outInterval, jitter, key, seq, pts_ms, ts_ms}
   var stats  = []; // {t, fps, kbps}
+  var drops  = []; // {t, n} — server 序列号跳变感知到的广播丢帧
 
   var CHARTS = [
     { id: 'size',   title: 'FrameSize(KB)',   kind: 'bar',  color: '#4f8ef7',
@@ -160,9 +171,10 @@
     { id: 'cost',   title: 'encode_cost(ms)', kind: 'line', color: '#f5a623',
       yMin: 0, yMax: 60, yStep: 10, yLabelStep: 10, unit: '',
       src: frames, get: function (d) { return d.cost; }, digits: 0 },
-    { id: 'interval', title: 'interval_jitter(ms)', kind: 'line', color: '#b57df0',
-      yMin: -15, yMax: 15, yStep: 5, yLabelStep: 5, unit: '',
-      src: frames, get: function (d) { return d.jitter; }, digits: 0 },
+    { id: 'interval', title: 'out−in & jitter(ms)', kind: 'line', color: '#f5a623', color2: '#b57df0',
+      yMin: -40, yMax: 40, yStep: 10, yLabelStep: 20, unit: '',
+      src: frames, get: function (d) { return d.lag; }, get2: function (d) { return d.jitter; }, digits: 0 },
+    // in/out 间隔与广播丢帧已降级为顶部徽标(数据仍在 frames/drops,CSV 照常导出)
     { id: 'fps',    title: 'FPS',             kind: 'line', color: '#38c8d8',
       yMin: 0, yMax: 75, yStep: 5, yLabelStep: 15, unit: '',
       src: stats, get: function (d) { return d.fps; }, digits: 0 },
@@ -184,11 +196,15 @@
     if (c.id === 'size') {
       legendHtml = '<span class="legend"><span><i style="background:' + c.color + '"></i>P</span>' +
                    '<span><i style="background:#f75f5f"></i>I</span></span>';
+    } else if (c.id === 'interval') {
+      legendHtml = '<span class="legend"><span><i style="background:' + c.color + '"></i>out−in</span>' +
+                   '<span><i style="background:' + c.color2 + '"></i>jitter</span></span>';
     } else {
       legendHtml = '<span class="legend"><span><i style="background:' + c.color + '"></i></span></span>';
     }
     card.innerHTML =
       '<div class="card-head"><span class="card-title">' + c.title + '</span>' + legendHtml +
+      '<span class="ymax" title="点击调整 Y 轴范围"></span>' +
       '<span class="stats"></span></div>' +
       '<canvas></canvas>' +
       '<div class="card-foot"><span>缩放</span><input type="range" min="0" max="' +
@@ -196,6 +212,29 @@
     mainEl.appendChild(card);
 
     c.canvas = card.querySelector('canvas');
+
+    // Y 轴档位:点击循环 base 的 1/4 → 1/2 → 1 → 2 → 4 倍(yMin<0 的卡对称缩放)
+    var RATIOS = [0.25, 0.5, 1, 2, 4];
+    c.yMax0 = c.yMax; c.yMin0 = c.yMin; c.yStep0 = c.yStep; c.yLabelStep0 = c.yLabelStep;
+    var ratioIdx = 2, ymaxEl = card.querySelector('.ymax');
+    function applyRatio() {
+      var r = RATIOS[ratioIdx];
+      c.yMax = Math.max(1, Math.round(c.yMax0 * r));
+      c.yMin = c.yMin0 < 0 ? -c.yMax : 0;
+      c.yStep = Math.max(1, Math.round(c.yStep0 * r));
+      c.yLabelStep = Math.max(1, Math.round(c.yLabelStep0 * r));
+      ymaxEl.textContent = (c.yMin < 0 ? '±' : '') + c.yMax;
+    }
+    applyRatio();
+    ymaxEl.addEventListener('click', function () {
+      ratioIdx = (ratioIdx + 1) % RATIOS.length; applyRatio();
+    });
+    // 图例项点击开关系列(仅双线卡)
+    if (c.get2) {
+      var spans = card.querySelectorAll('.legend span');
+      spans[0].addEventListener('click', function () { c.hide1 = !c.hide1; spans[0].classList.toggle('off', c.hide1); });
+      spans[1].addEventListener('click', function () { c.hide2 = !c.hide2; spans[1].classList.toggle('off', c.hide2); });
+    }
     c.ctx = c.canvas.getContext('2d');
     c.statsEl = card.querySelector('.stats');
     c.slider = card.querySelector('input[type=range]');
@@ -213,6 +252,8 @@
   var pendingRaw = [];
   var paused = false;
   var prevPtsMs = -1;
+  var prevTsMs = -1;
+  var prevSeq = -1;
   var intervalBase = -1; // 帧间隔慢速 EMA 基准,自适应 30/60fps
   var ws = null;
   var reconnectTimer = null;
@@ -220,7 +261,7 @@
   function connect() {
     var conn = document.getElementById('conn');
     var connText = document.getElementById('connText');
-    ws = new WebSocket('ws://' + location.hostname + ':9002', 'scrcpy');
+    ws = new WebSocket('ws://' + location.host, 'scrcpy'); // 与页面同端口,随 WEB_PORT 变化
     ws.onopen = function () {
       conn.classList.add('up');
       connText.textContent = '已连接';
@@ -261,6 +302,15 @@
         var dv = d.pts_ms - prevPtsMs;
         var interval = (prevPtsMs >= 0 && dv >= 0 && dv <= 1000) ? dv : null;
         prevPtsMs = d.pts_ms;
+        // 输出间隔:相邻 ts_ms(编码器出帧时刻)差,与输入间隔对比定位丢帧层
+        var dt = d.ts_ms - prevTsMs;
+        var outInterval = (prevTsMs >= 0 && dt >= 0 && dt <= 1000) ? dt : null;
+        prevTsMs = d.ts_ms;
+        // 广播队列 drop-oldest 丢帧由 seq 跳变感知
+        if (prevSeq >= 0 && d.seq - prevSeq > 1) {
+          drops.push({ t: now, n: d.seq - prevSeq - 1 });
+        }
+        prevSeq = d.seq;
         // jitter = 当前间隔 - 慢速基准:丢帧时正向尖峰,不随个别尖峰漂移
         var jitter = null;
         if (interval != null) {
@@ -268,8 +318,11 @@
           else intervalBase += (interval - intervalBase) * 0.02;
           jitter = Math.round(interval - intervalBase);
         }
+        // out−in:编码器出帧间隔减产帧间隔,正常贴 0;正值成簇=编码器攒帧
+        var lag = (interval != null && outInterval != null) ? outInterval - interval : null;
         frames.push({ t: now, size: d.size, qp: d.qp, cost: d.encode_cost_ms,
-                      interval: interval, jitter: jitter, key: !!d.isKeyFrame });
+                      interval: interval, outInterval: outInterval, jitter: jitter, lag: lag,
+                      key: !!d.isKeyFrame, seq: d.seq, pts_ms: d.pts_ms, ts_ms: d.ts_ms });
       } else if (obj.type === 'frameStat') {
         stats.push({ t: now, fps: obj.data.framerate, kbps: obj.data.bitrateKbps });
       }
@@ -277,7 +330,7 @@
     // 只保留最大窗口内的数据,防止内存无限增长
     var cutoff = performance.now() / 1000 - MAX_WIN - 1;
     trimTo(frames, cutoff);
-    trimTo(stats, cutoff);
+    trimTo(drops, cutoff);
   }
 
   function trimTo(arr, cutoff) {
@@ -292,13 +345,36 @@
     paused = !paused;
     pauseBtn.classList.toggle('paused', paused);
     pauseBtn.textContent = paused ? '▶ 继续接收' : '⏸ 暂停接收';
-    if (!paused) { prevPtsMs = -1; intervalBase = -1; pendingRaw.length = 0; }
+    if (!paused) { prevPtsMs = -1; prevTsMs = -1; prevSeq = -1; intervalBase = -1; pendingRaw.length = 0; }
   });
   document.getElementById('clearBtn').addEventListener('click', function () {
     frames.length = 0;
     stats.length = 0;
+    drops.length = 0;
     prevPtsMs = -1;
+    prevTsMs = -1;
+    prevSeq = -1;
     intervalBase = -1;
+  });
+  // 导出当前保留窗口(≤MAX_WIN+1s)的帧级数据;Excel 友好(UTF-8 BOM)
+  document.getElementById('exportBtn').addEventListener('click', function () {
+    var head = 'seq,pts_ms,ts_ms,size_B,qp,encode_cost_ms,isKeyFrame,in_interval_ms,out_interval_ms,jitter_ms,out_minus_in_ms';
+    var rows = [];
+    for (var i = 0; i < frames.length; i++) {
+      var f = frames[i];
+      rows.push([f.seq, f.pts_ms, f.ts_ms, f.size, f.qp, f.cost, f.key,
+                 f.interval == null ? '' : f.interval,
+                 f.outInterval == null ? '' : f.outInterval,
+                 f.jitter == null ? '' : f.jitter,
+                 f.lag == null ? '' : f.lag].join(','));
+    }
+    if (!rows.length) { alert('当前无数据'); return; }
+    var blob = new Blob(['\ufeff' + head + '\n' + rows.join('\n') + '\n'], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'encode_frames_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
   });
 
   /* ---------------- 绘制 ---------------- */
@@ -324,6 +400,24 @@
     var steps = [1, 2, 5, 10, 15, 30];
     for (var i = 0; i < steps.length; i++) if (steps[i] >= raw) return steps[i];
     return 30;
+  }
+
+  // 折线绘制(null 值断线);in/out 对比卡复用画第二条
+  function drawLine(ctx, c, arr, i0, xOf, yOf, color, get) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    var started = false;
+    for (var i = i0; i < arr.length; i++) {
+      var v = get(arr[i]);
+      if (v == null || !isFinite(v)) { started = false; continue; }
+      var x = xOf(arr[i].t), y = yOf(v);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.lineWidth = 1;
   }
 
   function drawChart(c, tNow) {
@@ -404,18 +498,8 @@
           ctx.fillRect(p.x - slot / 2, yv, slot, padT + plotH - yv);
         }
       } else {
-        ctx.strokeStyle = c.color;
-        ctx.lineWidth = 1.5;
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        var started = false;
-        for (i = 0; i < pts.length; i++) {
-          var q = pts[i];
-          if (!started) { ctx.moveTo(q.x, yOf(q.v)); started = true; }
-          else ctx.lineTo(q.x, yOf(q.v));
-        }
-        ctx.stroke();
-        ctx.lineWidth = 1;
+        if (!c.hide1) drawLine(ctx, c, arr, i0, xOf, yOf, c.color, c.get);
+        if (c.get2 && !c.hide2) drawLine(ctx, c, arr, i0, xOf, yOf, c.color2, c.get2);
       }
       ctx.restore();
     } else {
@@ -433,6 +517,27 @@
     ctx.strokeRect(padL, padT, plotW, plotH);
   }
 
+  // 顶部徽标:in/out 间隔(最近 1s 均值)与累计丢帧
+  var badgeInOut = document.getElementById('badgeInOut');
+  var badgeDrop = document.getElementById('badgeDrop');
+  function updateBadges() {
+    var cutoff = performance.now() / 1000 - 1;
+    var i = frames.length - 1;
+    while (i >= 0 && frames[i].t >= cutoff) i--; // i = 最后一个窗口外元素
+    var inSum = 0, inN = 0, outSum = 0, outN = 0;
+    for (var j = i + 1; j < frames.length; j++) {
+      if (frames[j].interval != null) { inSum += frames[j].interval; inN++; }
+      if (frames[j].outInterval != null) { outSum += frames[j].outInterval; outN++; }
+    }
+    var bs = badgeInOut.querySelectorAll('b');
+    bs[0].textContent = inN ? Math.round(inSum / inN) : '--';
+    bs[1].textContent = outN ? Math.round(outSum / outN) : '--';
+    var dropped = drops.reduce(function (s, d) { return s + d.n; }, 0);
+    var db = badgeDrop.querySelector('b');
+    db.textContent = dropped;
+    badgeDrop.classList.toggle('alert', dropped > 0);
+  }
+
   var sessionStart = performance.now() / 1000;
 
   var pauseT = -1; // 暂停时刻的时间基准:冻结窗口,图表仍可缩放交互
@@ -448,6 +553,7 @@
       tNow = performance.now() / 1000;
     }
     for (var i = 0; i < CHARTS.length; i++) drawChart(CHARTS[i], tNow);
+    if (!paused) updateBadges();
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
