@@ -168,7 +168,7 @@ log "统计 socket: $STAT_NAME"
 
 # ---------- 4. 启动 Web ----------
 log "启动 Web 服务(端口 $WEB_PORT)..."
-PORT="$WEB_PORT" FWD_PORT="$FWD_PORT" node "$EXAMPLE/app.js" &
+PORT="$WEB_PORT" FWD_PORT="$FWD_PORT" ADB="$ADB" SERIAL="$SERIAL" node "$EXAMPLE/app.js" &
 NODE_PID=$!
 sleep 1
 kill -0 "$NODE_PID" 2>/dev/null || die "node app.js 启动失败(端口被占用?)"
