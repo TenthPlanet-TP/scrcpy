@@ -430,15 +430,44 @@ drop-oldest on overflow). Messages are newline-delimited JSON, two kinds:
 | `seq` | long | monotonically increasing sequence number; gaps reveal drops |
 | `ts_ms` | long | device uptime when the packet was collected (encoder output time); `ts_ms` deltas (output rate) vs `pts_ms` deltas (display-layer production rate) locate the frame-drop layer |
 
-- `frameStat` — once per second:
+- `frameStat` — once per second (only when frames were encoded):
 
 ```json
 {"type":"frameStat","data":{"framerate":30,"bitrateKbps":3981}}
 ```
 
-The serialization is covered by `EncodeUtilsTest` on the server side; the
-reference consumer is the web page in `example/` (see `example/README.md`).
-`scripts/run_monitor.sh` brings up the whole chain.
+- `sysStat` — once per second, independent of encoding (class
+`com.genymobile.scrcpy.encodeStat.SysStatSampler`, a 1 Hz daemon thread
+started/stopped with the video encoder). System metrics from standard
+shell-readable interfaces (`/proc/stat`, `/proc/meminfo`, `/proc/net/dev`,
+`/sys/class/power_supply/battery`). Fields are omitted when the source is
+unavailable on the device (deltas are absent on the first sample):
+
+```json
+{"type":"sysStat","data":{"cpu_total":22.5,"mem_total_mb":3840,"mem_avail_mb":2449,"net_rx_kbs":4.4,"net_tx_kbs":6.2,"temp_c":26.2,"batt_pct":70,"gpu_util":6,"io_rx_kbs":0,"io_tx_kbs":1024.5}}
+```
+
+| field | type | description |
+|---|---|---|
+| `cpu_total` | double | whole-device CPU usage over the last interval (%) |
+| `mem_total_mb` / `mem_avail_mb` | double | `/proc/meminfo` MemTotal / MemAvailable (MemFree fallback) |
+| `net_rx_kbs` / `net_tx_kbs` | double | device network throughput excluding loopback (KB/s) |
+| `temp_c` | double | battery temperature (0.1 °C units from sysfs) |
+| `batt_pct` | int | battery capacity (%) |
+| `gpu_util` | int | GPU utilization (%), Mali-only sysfs node `mali0/device/utilisation`; omitted elsewhere |
+| `io_rx_kbs` / `io_tx_kbs` | double | disk read/write throughput (`/proc/diskstats` sector deltas, excluding loop/ram/zram/dm; KB/s) |
+
+Per-app metrics (`app_cpu`, `app_pss_mb`, `app_rss_mb`, `app_io_r_kbs`,
+`app_io_w_kbs`) are **not** produced by the server: `example/app.js` injects
+them into the same `sysStat` message type via `adb shell` (`pidof` +
+`/proc/<pid>/smaps_rollup` + `/proc/<pid>/stat` + `/proc/<pid>/io`), driven by
+a package name typed into the web page (reverse WebSocket message
+`{"setPkg": "<pkg>"}`). `app_cpu` is a single-core percentage (may exceed 100%
+for multi-threaded apps).
+
+The serialization is covered by `EncodeUtilsTest` and `SysStatSamplerTest` on
+the server side; the reference consumer is the web page in `example/` (see
+`example/README.md`). `scripts/run_monitor.sh` brings up the whole chain.
 
 ## Standalone server
 
