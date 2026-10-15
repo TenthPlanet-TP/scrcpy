@@ -195,16 +195,16 @@
   var drops  = []; // {t, n} — server 序列号跳变感知到的广播丢帧
 
   var CHARTS = [
-    { id: 'size',   title: 'FrameSize(KB)',   kind: 'bar',  color: '#4f8ef7',
+    { id: 'size',   title: 'FrameSize(KB)',   kind: 'bar',  color: '#4f8ef7', autoY: true,
       yMin: 0, yMax: 350, yStep: 50, yLabelStep: 50, unit: '',
       src: frames, get: function (d) { return d.size / 1024; }, digits: 0 },
     { id: 'qp',     title: 'QP',              kind: 'line', color: '#2ecc8f',
       yMin: 0, yMax: 60, yStep: 5, yLabelStep: 10, unit: '',
       src: frames, get: function (d) { return d.qp; }, digits: 0 },
-    { id: 'cost',   title: 'encode_cost(ms)', kind: 'line', color: '#f5a623',
+    { id: 'cost',   title: 'encode_cost(ms)', kind: 'line', color: '#f5a623', autoY: true,
       yMin: 0, yMax: 60, yStep: 10, yLabelStep: 10, unit: '',
       src: frames, get: function (d) { return d.cost; }, digits: 0 },
-    { id: 'interval', title: 'out−in & jitter(ms)', kind: 'line',
+    { id: 'interval', title: 'out−in & jitter(ms)', kind: 'line', autoY: true,
       yMin: -40, yMax: 40, yStep: 10, yLabelStep: 20, unit: '', digits: 0, src: frames,
       series: [
         { name: 'out−in', color: '#f5a623', get: function (d) { return d.lag; } },
@@ -213,7 +213,7 @@
     { id: 'fps',    title: 'EncodeFPS',        kind: 'line', color: '#38c8d8', gapJoin: true,
       yMin: 0, yMax: 75, yStep: 5, yLabelStep: 15, unit: '',
       src: stats, get: function (d) { return d.fps; }, digits: 0 },
-    { id: 'bitrate', title: 'Bitrate(Mbps)',  kind: 'bar',  color: '#e8c558',
+    { id: 'bitrate', title: 'Bitrate(Mbps)',  kind: 'bar',  color: '#e8c558', autoY: true,
       yMin: 0, yMax: 12, yStep: 3, yLabelStep: 3, unit: '',
       src: stats, get: function (d) { return d.kbps / BITRATE_DIV; }, digits: 1 },
     /* ---- 系统资源(1Hz;gapJoin:跨缺口连线——两路采样(server/app.js)节奏不齐,
@@ -221,13 +221,13 @@
     { group: 'sys', id: 'fpsSys', title: 'SysFPS', kind: 'line', gapJoin: true, color: '#38c8d8',
       yMin: 0, yMax: 75, yStep: 5, yLabelStep: 15, unit: '', digits: 0,
       src: stats, get: function (d) { return d.sysFps; } },
-    { group: 'sys', id: 'cpu', title: 'CPU(%)', kind: 'line', gapJoin: true,
+    { group: 'sys', id: 'cpu', title: 'CPU(%)', kind: 'line', gapJoin: true, autoY: true,
       yMin: 0, yMax: 100, yStep: 10, yLabelStep: 20, unit: '', digits: 1, src: stats,
       series: [
         { name: 'total', color: '#5aa2ff', get: function (d) { return d.cpuTotal; } },
         { name: 'app', color: '#2ecc8f', get: function (d) { return d.appCpu; } }
       ] },
-    { group: 'sys', id: 'mem', title: 'AppPSS(MB)', kind: 'line', gapJoin: true, color: '#e8c558',
+    { group: 'sys', id: 'mem', title: 'AppPSS(MB)', kind: 'line', gapJoin: true, color: '#e8c558', autoY: true,
       yMin: 0, yMax: 300, yStep: 50, yLabelStep: 100, unit: '', digits: 1,
       src: stats, get: function (d) { return d.appPss; } },
     { group: 'sys', id: 'net', title: 'Net(KB/s)', kind: 'line', gapJoin: true, autoY: true,
@@ -612,16 +612,20 @@
     var arr = c.src, i0 = 0;
     while (i0 < arr.length && arr[i0].t < t0) i0++;
 
-    // autoY:Y 轴量程随窗口数据自适应(IO/Net 动态范围大,固定量程空图或削顶);
-    // nice 上取整(1/2/5×10^n)作 base,用户倍率(点击徽章循环)在 base 上微调
+    // autoY:Y 轴量程随窗口数据自适应(IO/Net 动态范围大、帧大小/码率随配置变化,固定量程
+    // 空图或削顶);nice 上取整(1/2/5×10^n)作 base,用户倍率(点击徽章循环)在 base 上微调;
+    // 负值对称卡(yMin0<0,如 out−in/jitter)取 |v| 峰值,量程对称 ±
     if (c.autoY) {
+      var sym = c.yMin0 < 0;
       var m = 0;
       for (var ai = 0; ai < c.series.length; ai++) {
         var as = c.series[ai];
         if (as.hidden) continue;
         for (var aj = i0; aj < arr.length; aj++) {
           var av = as.get(arr[aj]);
-          if (av != null && isFinite(av) && av > m) m = av;
+          if (av != null && isFinite(av)) {
+            if (sym ? Math.abs(av) > m : av > m) m = sym ? Math.abs(av) : av;
+          }
         }
       }
       var e = Math.floor(Math.log(Math.max(m, 1)) / Math.LN10);
@@ -631,10 +635,10 @@
       // 迟滞:放大即时跟随;缩小需窗口峰值降到当前量程 1/4 以下(避免尖峰滑出后量程瞬间塌缩)
       if (target > c.yMax || target * 4 <= c.yMax) {
         c.yMax = target;
-        c.yMin = 0;
+        c.yMin = sym ? -target : 0;
         c.yLabelStep = Math.max(1, Math.round(c.yMax / 2));
         c.yStep = Math.max(1, Math.round(c.yMax / 8));
-        c.ymaxEl.textContent = String(c.yMax);
+        c.ymaxEl.textContent = (sym ? '±' : '') + c.yMax;
       }
     }
     // ---- 网格 + Y 刻度 ----
