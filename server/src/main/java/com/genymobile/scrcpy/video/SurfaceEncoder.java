@@ -6,34 +6,30 @@ import com.genymobile.scrcpy.Options;
 import com.genymobile.scrcpy.device.ConfigurationException;
 import com.genymobile.scrcpy.device.Size;
 import com.genymobile.scrcpy.device.Streamer;
+import com.genymobile.scrcpy.encodeStat.EncodeStatSender;
+import com.genymobile.scrcpy.encodeStat.EncodeUtils;
+import com.genymobile.scrcpy.encodeStat.SysStatSampler;
 import com.genymobile.scrcpy.util.Codec;
 import com.genymobile.scrcpy.util.CodecOption;
 import com.genymobile.scrcpy.util.CodecUtils;
 import com.genymobile.scrcpy.util.IO;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.LogUtils;
-import com.genymobile.scrcpy.encodeStat.EncodeStatSender;
-import com.genymobile.scrcpy.encodeStat.EncodeUtils;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Surface;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.AbstractMap.SimpleEntry;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
-import java.util.AbstractMap.SimpleEntry;
-import android.os.Bundle;
 
 
 public class SurfaceEncoder implements AsyncProcessor {
@@ -88,6 +84,7 @@ public class SurfaceEncoder implements AsyncProcessor {
 
         capture.init(reset);
 
+        SysStatSampler sysStatSampler = null;
         if (encodeUtils.init(codec.getMimeType())) {
             if (encodeStatSender != null) {
                 encodeUtils.setCallback(new EncodeUtils.OnParseCb() {
@@ -96,6 +93,8 @@ public class SurfaceEncoder implements AsyncProcessor {
                         encodeStatSender.send(str);
                     }
                 });
+                sysStatSampler = new SysStatSampler(encodeStatSender::send);
+                sysStatSampler.start();
             }
         } else {
             Ln.e("Failed to init encode utils");
@@ -174,6 +173,9 @@ public class SurfaceEncoder implements AsyncProcessor {
                 }
             } while (alive);
         } finally {
+            if (sysStatSampler != null) {
+                sysStatSampler.stop();
+            }
             mediaCodec.release();
             capture.release();
         }
