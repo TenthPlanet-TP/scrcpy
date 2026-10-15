@@ -230,8 +230,8 @@
     { group: 'sys', id: 'mem', title: 'AppPSS(MB)', kind: 'line', gapJoin: true, color: '#e8c558',
       yMin: 0, yMax: 300, yStep: 50, yLabelStep: 100, unit: '', digits: 1,
       src: stats, get: function (d) { return d.appPss; } },
-    { group: 'sys', id: 'net', title: 'Net(KB/s)', kind: 'line', gapJoin: true,
-      yMin: 0, yMax: 2048, yStep: 256, yLabelStep: 512, unit: '', digits: 0, src: stats,
+    { group: 'sys', id: 'net', title: 'Net(KB/s)', kind: 'line', gapJoin: true, autoY: true,
+      yMin: 0, yMax: 1024, yStep: 128, yLabelStep: 256, unit: '', digits: 0, src: stats,
       series: [
         { name: 'rx', color: '#38c8d8', get: function (d) { return d.netRx; } },
         { name: 'tx', color: '#e8c558', get: function (d) { return d.netTx; } }
@@ -239,7 +239,7 @@
     { group: 'sys', id: 'gpu', title: 'GPU(%)', kind: 'line', gapJoin: true, color: '#f78ef7',
       yMin: 0, yMax: 100, yStep: 10, yLabelStep: 20, unit: '', digits: 0,
       src: stats, get: function (d) { return d.gpuUtil; } },
-    { group: 'sys', id: 'io', title: 'IO(KB/s)', kind: 'line', gapJoin: true,
+    { group: 'sys', id: 'io', title: 'IO(KB/s)', kind: 'line', gapJoin: true, autoY: true,
       yMin: 0, yMax: 1024, yStep: 128, yLabelStep: 256, unit: '', digits: 0, src: stats,
       series: [
         { name: 'r', color: '#2ecc8f', get: function (d) { return d.ioRead; } },
@@ -251,6 +251,8 @@
   var WIN_STEPS = [2, 3, 5, 10, 15, 30, 60];
   var MAX_WIN = WIN_STEPS[WIN_STEPS.length - 1];
 
+  // Y 轴倍率档位(点击量程徽章循环)
+  var RATIOS = [0.25, 0.5, 1, 2, 4];
   /* ---------------- DOM 构建 ---------------- */
   var mainEl = document.getElementById('charts');
   // 分组容器:enc(编码链路,默认)与 sys(系统资源);tab 互斥展示,数据持续采集
@@ -295,12 +297,14 @@
 
     c.canvas = card.querySelector('canvas');
 
-    // Y 轴档位:点击循环 base 的 1/4 → 1/2 → 1 → 2 → 4 倍(yMin<0 的卡对称缩放)
-    var RATIOS = [0.25, 0.5, 1, 2, 4];
+    // Y 轴档位:点击循环 base 的 1/4 → 1/2 → 1 → 2 → 4 倍(yMin<0 的卡对称缩放);
+    // autoY 卡的 base 每帧由窗口数据重算,倍率在 base 上微调
     c.yMax0 = c.yMax; c.yMin0 = c.yMin; c.yStep0 = c.yStep; c.yLabelStep0 = c.yLabelStep;
-    var ratioIdx = 2, ymaxEl = card.querySelector('.ymax');
+    c.ratioIdx = 2;
+    var ymaxEl = card.querySelector('.ymax');
+    c.ymaxEl = ymaxEl;
     function applyRatio() {
-      var r = RATIOS[ratioIdx];
+      var r = RATIOS[c.ratioIdx];
       c.yMax = Math.max(1, Math.round(c.yMax0 * r));
       c.yMin = c.yMin0 < 0 ? -c.yMax : 0;
       c.yStep = Math.max(1, Math.round(c.yStep0 * r));
@@ -309,7 +313,7 @@
     }
     applyRatio();
     ymaxEl.addEventListener('click', function () {
-      ratioIdx = (ratioIdx + 1) % RATIOS.length; applyRatio();
+      c.ratioIdx = (c.ratioIdx + 1) % RATIOS.length; applyRatio();
     });
     // 图例项点击开关系列(多系列卡)
     if (c.series.length > 1) {
@@ -604,6 +608,35 @@
     function xOf(t) { return padL + (t - t0) / c.win * plotW; }
     function yOf(v) { return padT + (1 - (v - c.yMin) / (c.yMax - c.yMin)) * plotH; }
 
+    // 窗口起点(供 autoY 扫描与后续绘制共用)
+    var arr = c.src, i0 = 0;
+    while (i0 < arr.length && arr[i0].t < t0) i0++;
+
+    // autoY:Y 轴量程随窗口数据自适应(IO/Net 动态范围大,固定量程空图或削顶);
+    // nice 上取整(1/2/5×10^n)作 base,用户倍率(点击徽章循环)在 base 上微调
+    if (c.autoY) {
+      var m = 0;
+      for (var ai = 0; ai < c.series.length; ai++) {
+        var as = c.series[ai];
+        if (as.hidden) continue;
+        for (var aj = i0; aj < arr.length; aj++) {
+          var av = as.get(arr[aj]);
+          if (av != null && isFinite(av) && av > m) m = av;
+        }
+      }
+      var e = Math.floor(Math.log(Math.max(m, 1)) / Math.LN10);
+      var b = m / Math.pow(10, e);
+      var base = (b <= 1 ? 1 : b <= 2 ? 2 : b <= 5 ? 5 : 10) * Math.pow(10, e);
+      var target = Math.max(1, Math.round(base * RATIOS[c.ratioIdx]));
+      // 迟滞:放大即时跟随;缩小需窗口峰值降到当前量程 1/4 以下(避免尖峰滑出后量程瞬间塌缩)
+      if (target > c.yMax || target * 4 <= c.yMax) {
+        c.yMax = target;
+        c.yMin = 0;
+        c.yLabelStep = Math.max(1, Math.round(c.yMax / 2));
+        c.yStep = Math.max(1, Math.round(c.yMax / 8));
+        c.ymaxEl.textContent = String(c.yMax);
+      }
+    }
     // ---- 网格 + Y 刻度 ----
     ctx.font = '10px sans-serif';
     ctx.fillStyle = AXIS_TEXT;
@@ -635,9 +668,7 @@
       ctx.fillText(String(Math.round(t - sessionStart)), x, padT + plotH + 4);
     }
 
-    // ---- 窗口内数据 + 统计 ----
-    var arr = c.src, i0 = 0;
-    while (i0 < arr.length && arr[i0].t < t0) i0++;
+    // ---- 窗口内数据 + 统计(i0 已在 autoY 段前算好) ----
     var pts = [];
     for (var i = i0; i < arr.length; i++) {
       var val = c.get(arr[i]);
