@@ -69,4 +69,15 @@ public class SysStatSamplerTest {
             assertEquals(true, second.has("mem_total_mb"));
         }
     }
+
+    @Test
+    public void testParseLeadingDouble() {
+        // 高通 KGSL gpu_busy_percentage 的 "13 %" 格式(带单位与空格)
+        assertEquals(Double.valueOf(13.0), SysStatSampler.parseLeadingDouble("13 %"));
+        assertEquals(Double.valueOf(0.0), SysStatSampler.parseLeadingDouble("0 %"));
+        assertEquals(Double.valueOf(42.5), SysStatSampler.parseLeadingDouble("42.5"));
+        assertEquals(null, SysStatSampler.parseLeadingDouble(null));
+        assertEquals(null, SysStatSampler.parseLeadingDouble(""));
+        assertEquals(null, SysStatSampler.parseLeadingDouble("abc"));
+    }
 }

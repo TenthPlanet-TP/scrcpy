@@ -109,8 +109,15 @@ public final class SysStatSampler {
         if (batt != null) {
             jsonPut(data, "batt_pct", (int) (double) batt);
         }
-        // GPU 占用:Mali 平台(Rockchip/三星等)暴露 utilisation 节点;其余平台缺省
+        // GPU 占用:Mali(Rockchip/三星)读 utilisation;高通 Adreno 读 KGSL gpu_busy_percentage
+        // ("13 %"带单位,部分虚拟化卡 devfreq/gpu_load 为静态假值,故放最后兜底);其余平台缺省
         Double gpu = readSysfsDouble("/sys/class/misc/mali0/device/utilisation");
+        if (gpu == null) {
+            gpu = readSysfsDoubleLoose("/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage");
+        }
+        if (gpu == null) {
+            gpu = readSysfsDouble("/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load");
+        }
         if (gpu != null) {
             jsonPut(data, "gpu_util", (int) (double) gpu);
         }
@@ -259,6 +266,23 @@ public final class SysStatSampler {
         try (BufferedReader br = new BufferedReader(new FileReader(path))) {
             String line = br.readLine();
             return line == null ? null : Double.valueOf(Double.parseDouble(line.trim()));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // 容错提取行内首个数字(如 KGSL gpu_busy_percentage 的 "13 %" 格式)
+    static Double parseLeadingDouble(String line) {
+        if (line == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("-?\\d+(?:\\.\\d+)?").matcher(line);
+        return m.find() ? Double.valueOf(Double.parseDouble(m.group())) : null;
+    }
+
+    private static Double readSysfsDoubleLoose(String path) {
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            return parseLeadingDouble(br.readLine());
         } catch (Exception e) {
             return null;
         }
