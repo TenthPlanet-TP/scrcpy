@@ -652,9 +652,25 @@
         sum += pv;
       }
       var last = pts[pts.length - 1].v;
-      c.statsEl.innerHTML = 'cur <b>' + last.toFixed(c.digits) + '</b>' +
-        ' max <b>' + maxV.toFixed(c.digits) + '</b>' +
-        ' avg <b>' + (sum / pts.length).toFixed(c.digits) + '</b>' + c.unit;
+      if (c.series.length > 1 && c.kind !== 'bar') {
+        // 多线卡:逐线显示 cur(series[0] 单值统计对双线卡只覆盖主线,如 IO 卡写流量不可见)
+        var html = '';
+        for (var ci = 0; ci < c.series.length; ci++) {
+          var s = c.series[ci];
+          var cur = null;
+          for (var cj = arr.length - 1; cj >= i0; cj--) {
+            var cv = s.get(arr[cj]);
+            if (cv != null && isFinite(cv)) { cur = cv; break; }
+          }
+          html += (html ? ' · ' : '') + (s.name ? s.name + ' ' : '') +
+            '<b style="color:' + s.color + '">' + (cur == null ? '--' : cur.toFixed(c.digits)) + '</b>';
+        }
+        c.statsEl.innerHTML = html + c.unit;
+      } else {
+        c.statsEl.innerHTML = 'cur <b>' + last.toFixed(c.digits) + '</b>' +
+          ' max <b>' + maxV.toFixed(c.digits) + '</b>' +
+          ' avg <b>' + (sum / pts.length).toFixed(c.digits) + '</b>' + c.unit;
+      }
       // 超出 Y 轴上限的值(如 cost 偶发 >60ms)裁剪在绘图区内,贴顶显示
       ctx.save();
       ctx.beginPath();
