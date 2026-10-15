@@ -2,7 +2,7 @@
 
 基于 [scrcpy](https://github.com/Genymobile/scrcpy) v3.2 改造的 Android 性能监控工具:server 端逐帧采集编码器统计(帧大小、QP、编码耗时、帧率、码率)+ 1Hz 系统指标(CPU/内存/网络/GPU/磁盘 IO),经 abstract socket 以 JSON 行协议输出,Web 端双 Tab 实时图表展示。
 
-![Encode tab](example/screenshot-encode.png)
+![EncodeStats tab](example/screenshot-encode.png)
 
 ![PerfCat tab](example/screenshot-perfcat.png)
 
@@ -10,7 +10,7 @@
 
 两个 Tab 单页切换(后台 Tab 数据照常采集),每 Tab 6 张卡(2 列 × 3 行):
 
-**Encode(编码链路)**
+**EncodeStats(编码链路)**
 
 | 图表 | 说明 |
 |---|---|
