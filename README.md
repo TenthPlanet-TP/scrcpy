@@ -1,18 +1,35 @@
 # 云手机编码测试工具
 
-基于 [scrcpy](https://github.com/Genymobile/scrcpy) v3.2 改造的 Android 编码质量监控工具:server 端逐帧采集编码器统计(帧大小、QP、编码耗时、帧率、码率),经 abstract socket 以 JSON 行协议输出,Web 端实时图表展示。
+基于 [scrcpy](https://github.com/Genymobile/scrcpy) v3.2 改造的 Android 性能监控工具:server 端逐帧采集编码器统计(帧大小、QP、编码耗时、帧率、码率)+ 1Hz 系统指标(CPU/内存/网络/GPU/磁盘 IO),经 abstract socket 以 JSON 行协议输出,Web 端双 Tab 实时图表展示。
 
-![编码监控运行截图](example/screenshot.png)
+![Encode tab](example/screenshot-encode.png)
+
+![PerfCat tab](example/screenshot-perfcat.png)
 
 ## 监控指标
+
+两个 Tab 单页切换(后台 Tab 数据照常采集),每 Tab 6 张卡(2 列 × 3 行):
+
+**Encode(编码链路)**
 
 | 图表 | 说明 |
 |---|---|
 | FrameSize(KB) | 每帧编码后大小,I 帧红色 / P 帧蓝色 |
 | QP | 量化参数(需设备端 `libwebrtcLibsJni.so`,缺失时为 -1) |
 | encode_cost(ms) | 单帧编码耗时 |
-| interval_jitter(ms) | 帧间隔抖动(客户端由相邻 `pts_ms` 差推导) |
-| FPS / Bitrate(Mbps) | server 端每秒汇总 |
+| out−in & jitter(ms) | 编码器出帧−产帧间隔(攒帧检测)与帧间隔抖动双线 |
+| EncodeFPS / Bitrate(Mbps) | 编码器出帧率;server 每秒汇总码率 |
+
+**PerfCat(系统与指定 APP,1Hz)**
+
+| 图表 | 说明 |
+|---|---|
+| SysFPS | 显示层产帧率(pts 差分,≈目标 APP 渲染帧率) |
+| CPU(%) | 整机 + 指定 APP 双线(APP 需在页面输入包名) |
+| AppPSS(MB) | 指定 APP 内存(RSS 进 CSV 不画卡) |
+| Net(KB/s) | 整机网络 rx/tx |
+| GPU(%) | Mali `utilisation` sysfs(非 Mali 平台缺省断线) |
+| IO(KB/s) | 磁盘读/写(`/proc/diskstats` 扇区差分) |
 
 ## 快速开始
 
@@ -46,7 +63,7 @@ flowchart LR
     B --> C[EncodeUtils 逐帧统计]
     C -->|JSON 行| D["localabstract socket<br/>scrcpy_&lt;scid&gt;_encode_stat"]
     D -->|adb forward tcp:1717| E[example/app.js]
-    E -->|WebSocket| F["浏览器 public/index.html<br/>6 张实时图表"]
+    E -->|WebSocket| F["浏览器 public/index.html<br/>双 Tab × 6 卡实时图表"]
 ```
 
 - 统计通道独立于 scrcpy 的 video/audio/control 三通道,多客户端同时监控各自拿到完整数据流(广播)
