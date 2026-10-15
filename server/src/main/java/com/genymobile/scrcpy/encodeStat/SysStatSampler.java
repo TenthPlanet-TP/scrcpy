@@ -5,6 +5,8 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 数据源均为 shell uid 可读的标准接口:/proc/stat、/proc/meminfo、
@@ -168,29 +170,48 @@ public final class SysStatSampler {
         return new long[]{total - idle, total};
     }
 
-    // /proc/diskstats → 排除 loop/ram/zram/dm- 后的 {读扇区累计, 写扇区累计}
+    // /proc/diskstats → 排除 loop/ram/zram/dm- 且剔除有分区的父盘(mmcblk0 与 mmcblk0p1
+    // 并存时只计分区,避免父盘整盘+分区双计数)后的 {读扇区累计, 写扇区累计}
     // 行格式:major minor name reads ... sectorsRead(第6) ... writes ... sectorsWritten(第10)
     static long[] parseDiskstats(String content) {
         if (content == null) {
             return null;
         }
-        long r = 0;
-        long w = 0;
-        boolean seen = false;
+        LinkedHashMap<String, long[]> devs = new LinkedHashMap<>();
         for (String line : content.split("\n")) {
             String[] f = line.trim().split("\\s+");
             if (f.length < 10 || f[2].matches("^(loop|ram|zram|dm-).*")) {
                 continue;
             }
             try {
-                r += Long.parseLong(f[5]);
-                w += Long.parseLong(f[9]);
+                long[] v = devs.get(f[2]);
+                if (v == null) {
+                    v = new long[2];
+                    devs.put(f[2], v);
+                }
+                v[0] += Long.parseLong(f[5]);
+                v[1] += Long.parseLong(f[9]);
             } catch (NumberFormatException e) {
                 continue;
             }
-            seen = true;
         }
-        return seen ? new long[]{r, w} : null;
+        long r = 0;
+        long w = 0;
+        for (Map.Entry<String, long[]> e : devs.entrySet()) {
+            String name = e.getKey();
+            boolean hasPart = false;
+            for (String other : devs.keySet()) {
+                if (!other.equals(name) && other.startsWith(name)) {
+                    hasPart = true;
+                    break;
+                }
+            }
+            if (!hasPart) {
+                r += e.getValue()[0];
+                w += e.getValue()[1];
+            }
+        }
+        return devs.isEmpty() ? null : new long[]{r, w};
     }
 
     // /proc/meminfo → {MemTotal_kb, MemAvailable_kb};MemAvailable 缺省(Android 4.3 以下)回退 MemFree

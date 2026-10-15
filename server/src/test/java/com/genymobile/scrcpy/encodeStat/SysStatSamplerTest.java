@@ -59,6 +59,18 @@ public class SysStatSamplerTest {
     }
 
     @Test
+    public void testParseDiskstatsDedupParentDisk() {
+        // 父盘 mmcblk0(整盘)与分区 mmcblk0p11 并存:只计分区,避免双计数
+        String content = " 179       0 mmcblk0 123 5 2000 100 60 2 1000 50 0 0 0 0 0 0\n"
+                + " 179      11 mmcblk0p11 40 3 500 30 20 1 300 10 0 0 0 0 0 0\n";
+        assertArrayEquals(new long[]{500, 300}, SysStatSampler.parseDiskstats(content));
+
+        // 无分区的裸盘正常累计
+        String single = "   8       0 sda 10 0 100 10 20 0 400 20 0 0 0 0 0 0\n";
+        assertArrayEquals(new long[]{100, 400}, SysStatSampler.parseDiskstats(single));
+    }
+
+    @Test
     public void testSampleSmokeOnHostProc() {
         // 宿主机/CI 的 /proc 可读:sample 两次(建立差分基准),不抛异常且产出绝对量字段;
         // battery 在 JVM 侧缺文件,应被静默跳过
