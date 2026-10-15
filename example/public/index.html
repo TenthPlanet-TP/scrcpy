@@ -443,9 +443,16 @@
     var cut1 = now1 - 1;
     var fi = frames.length - 1;
     while (fi >= 0 && frames[fi].t >= cut1) fi--;
-    var inSum = 0, inN = 0;
+    var inSum = 0, inN = 0, janks = 0, w3 = [];
     for (var fj = fi + 1; fj < frames.length; fj++) {
-      if (frames[fj].interval != null) { inSum += frames[fj].interval; inN++; }
+      var iv = frames[fj].interval;
+      if (iv == null) { w3.length = 0; continue; }
+      inSum += iv; inN++;
+      // perfDog 口径 Jank(同时满足): ①帧间隔 > 前三帧均值×2(视觉惯性,vsync 丢 2 帧)
+      // ②帧间隔 > 2×电影帧 1000/24×2≈83.3ms(人眼感知不连续的临界)。静止稀疏帧时
+      // 前三帧均值同样巨大,条件①自然不满足,无需特判;断流(interval 缺席)重置参照窗
+      if (w3.length === 3 && iv > 83.3 && iv * 3 > (w3[0] + w3[1] + w3[2]) * 2) janks++;
+      w3.push(iv); if (w3.length > 3) w3.shift();
     }
     if (inN) {
       var lastS = stats[stats.length - 1];
@@ -454,6 +461,7 @@
         stats.push(lastS);
       }
       lastS.sysFps = Math.round(1000 / (inSum / inN));
+      lastS.jank = janks;
     }
     // 只保留最大窗口内的数据,防止内存无限增长
     var cutoff = performance.now() / 1000 - MAX_WIN - 1;
@@ -533,7 +541,7 @@
 
   // 导出秒级汇总:1Hz 记录(fps/码率/系统/APP 指标,缺席列为空)
   document.getElementById('exportSysBtn').addEventListener('click', function () {
-    var cols = ['fps', 'sysFps', 'kbps', 'cpuTotal', 'appCpu', 'appPss', 'appRss', 'appIoR', 'appIoW',
+    var cols = ['fps', 'sysFps', 'jank', 'kbps', 'cpuTotal', 'appCpu', 'appPss', 'appRss', 'appIoR', 'appIoW',
                 'gpuUtil', 'ioRead', 'ioWrite', 'netRx', 'netTx', 'memAvail', 'tempC', 'battPct'];
     var head = 't_s,' + cols.join(',');
     var rows = [];
@@ -706,6 +714,13 @@
           ' max <b>' + maxV.toFixed(c.digits) + '</b>' +
           ' avg <b>' + (sum / pts.length).toFixed(c.digits) + '</b>' + c.unit;
       }
+      if (c.id === 'fpsSys') {
+        var jc = null;
+        for (var jm = arr.length - 1; jm >= i0; jm--) {
+          if (arr[jm].jank != null) { jc = arr[jm].jank; break; }
+        }
+        c.statsEl.innerHTML += ' · jank <b style="color:#ff6b6b">' + (jc == null ? '--' : jc) + '</b>';
+      }
       // 超出 Y 轴上限的值(如 cost 偶发 >60ms)裁剪在绘图区内,贴顶显示
       ctx.save();
       ctx.beginPath();
@@ -737,6 +752,18 @@
       var yz = yOf(0);
       ctx.strokeStyle = '#3a4452';
       ctx.beginPath(); ctx.moveTo(padL, yz); ctx.lineTo(c.w - padR, yz); ctx.stroke();
+    }
+
+    // ---- Jank 事件标记线(仅 SysFPS 卡):perfDog 口径卡顿(帧间隔>max(前三帧均值×2, 83.3ms))
+    // 发生的秒画红色竖线,与 FPS 下凹对应;数据与计算在秒级记录 d.jank 上 ----
+    if (c.id === 'fpsSys') {
+      ctx.strokeStyle = 'rgba(255,107,107,.45)';
+      for (var jk = i0; jk < arr.length; jk++) {
+        if (arr[jk].jank > 0) {
+          var xj = xOf(arr[jk].t);
+          ctx.beginPath(); ctx.moveTo(xj, padT); ctx.lineTo(xj, padT + plotH); ctx.stroke();
+        }
+      }
     }
     // 边框
     ctx.strokeStyle = GRID;

@@ -24,7 +24,7 @@
 
 | 图表 | 说明 |
 |---|---|
-| SysFPS | 显示层产帧率(pts 差分,≈目标 APP 渲染帧率) |
+| SysFPS | 显示层产帧率(pts 差分,≈目标 APP 渲染帧率);红色竖线=Jank 卡顿标记(perfDog 口径:帧间隔同时 >前三帧均值×2 且 >83.3ms),受 --max-fps 限帧影响 |
 | CPU(%) | 整机 + 指定 APP 双线(APP 需在页面输入包名) |
 | AppPSS(MB) | 指定 APP 内存(RSS 进 CSV 不画卡) |
 | Net(KB/s) | 整机网络 rx/tx |

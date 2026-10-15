@@ -84,7 +84,7 @@ server 端产整机指标;指定 APP 指标由本目录 `app.js` 经 adb shell �
 
 - 两个 Tab(**页面与控件全英文**;tab 在 header 最左,header 控件随 tab 切换:EncodeStats 显示 drop 徽标+Export CSV,PerfCat 显示设备状态徽标+包名输入+Export 1Hz;单页、2 列卡、后台 Tab 数据照常采集):
   - **EncodeStats**:FrameSize(KB)、QP、encode_cost(ms)、out−in & jitter(ms)双线卡、EncodeFPS(编码器出帧率)、Bitrate(Mbps);out−in(橙)=编码器出帧间隔−产帧间隔,正常贴 0,正值成簇=编码器攒帧
-  - **PerfCat**:SysFPS(显示层产帧率,pts 差分,≈目标 APP 渲染帧率)、CPU(%)(整机+指定 APP)、AppPSS(MB)、Net(KB/s)(rx/tx)、GPU(%)、IO(KB/s)(磁盘读/写);慢速指标曲线 gapJoin(跨缺口连线,不断线)
+  - **PerfCat**:SysFPS(显示层产帧率,pts 差分,≈目标 APP 渲染帧率;红色竖线=perfDog 口径 Jank 卡顿标记,帧间隔同时 >前三帧均值×2 且 >83.3ms,stats 尾部 `jank N` 为当前秒次数,CSV 导出含 jank 列;受 --max-fps 限帧影响,限帧后判定偏保守)、CPU(%)(整机+指定 APP)、AppPSS(MB)、Net(KB/s)(rx/tx)、GPU(%)、IO(KB/s)(磁盘读/写);慢速指标曲线 gapJoin(跨缺口连线,不断线)
 - PerfCat 顶部输入框填 **APP 包名**回车 → 开始采样该 APP 的 CPU/PSS/IO(清空回车停止)
 - 「导出 CSV」帧级数据(seq/pts/ts/size/qp/cost/interval 等);「导出秒级 CSV」fps/码率/系统指标汇总
 - 每卡右上角 y 轴量程徽章点击循环 1/4→1/2→1→2→4 倍;多线卡图例色块点击显隐对应曲线
