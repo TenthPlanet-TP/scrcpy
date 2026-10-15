@@ -27,11 +27,11 @@ import java.util.List;
 
 
 public class EncodeUtils {
+    private long seq = 0L;
     private long prev_time = 0L;
     private int fbd = 0;
     private int prev_fbd = 0;
     private int bytes_generated = 0;
-
     private ToolKits toolKits = new ToolKits();
     private long mHandle = -1;
 
@@ -179,11 +179,31 @@ public class EncodeUtils {
         jsonPut(data, "qp", ret);
         jsonPut(data, "encode_cost_ms", deltaMs);
         jsonPut(data, "isKeyFrame", isKeyFrame);
+        jsonPut(data, "seq", seq);
+        jsonPut(data, "ts_ms", current_time);
         jsonPut(json, "data", data);
+        seq++;
 
         if (onParseCb != null) {
             onParseCb.callback(json.toString());
         }
+    }
+
+    // 协议契约:frame 记录字段与 example 前端(public/index.html)解析互为镜像,
+    // 改字段须两端同步;独立静态方法便于单测(不依赖 android 运行时)
+    static String buildFrameJson(long ptsMs, int size, int qp, long encodeCostMs, boolean isKeyFrame, long seq, long tsMs) {
+        JSONObject json = new JSONObject();
+        jsonPut(json, "type", "frame");
+        JSONObject data = new JSONObject();
+        jsonPut(data, "pts_ms", ptsMs);
+        jsonPut(data, "size", size);
+        jsonPut(data, "qp", qp);
+        jsonPut(data, "encode_cost_ms", encodeCostMs);
+        jsonPut(data, "isKeyFrame", isKeyFrame);
+        jsonPut(data, "seq", seq);
+        jsonPut(data, "ts_ms", tsMs);
+        jsonPut(json, "data", data);
+        return json.toString();
     }
 
     private static void jsonPut(JSONObject json, String key, Object value) {

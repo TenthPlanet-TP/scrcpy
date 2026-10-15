@@ -401,6 +401,44 @@ The only documentation for this protocol is the set of unit tests on both sides:
  - `ControlMessage` (from client to device): [serialization](https://github.com/Genymobile/scrcpy/blob/master/app/tests/test_control_msg_serialize.c) | [deserialization](https://github.com/Genymobile/scrcpy/blob/master/server/src/test/java/com/genymobile/scrcpy/ControlMessageReaderTest.java)
  - `DeviceMessage` (from device to client) [serialization](https://github.com/Genymobile/scrcpy/blob/master/server/src/test/java/com/genymobile/scrcpy/DeviceMessageWriterTest.java) | [deserialization](https://github.com/Genymobile/scrcpy/blob/master/app/tests/test_device_msg_deserialize.c)
 
+### Encode statistics (encode_stat branch)
+
+On top of the 3 standard sockets, the server (class
+`com.genymobile.scrcpy.encodeStat.EncodeStatSender`) also listens on a 4th
+local socket:
+
+```bash
+localabstract:scrcpy_<SCID>_encode_stat
+```
+
+Every connected client receives the **complete** stream (per-client queues,
+drop-oldest on overflow). Messages are newline-delimited JSON, two kinds:
+
+- `frame` — one per encoded packet:
+
+```json
+{"type":"frame","data":{"pts_ms":123456,"size":40960,"qp":35,"encode_cost_ms":8,"isKeyFrame":false,"seq":42,"ts_ms":123464}}
+```
+
+| field | type | description |
+|---|---|---|
+| `pts_ms` | long | buffer pts (`presentationTimeUs`/1000, device uptime base); 0 for the first frame |
+| `size` | int | encoded size in bytes (config packet: codec header, `qp=-1`) |
+| `qp` | int | quantization parameter; -1 if the QP library (`libwebrtcLibsJni.so`) is unavailable |
+| `encode_cost_ms` | long | collection time − pts (approximates the encode cost); 0 for the first frame |
+| `isKeyFrame` | bool | whether the packet is a key frame |
+| `seq` | long | monotonically increasing sequence number; gaps reveal drops |
+| `ts_ms` | long | device uptime when the packet was collected (encoder output time); `ts_ms` deltas (output rate) vs `pts_ms` deltas (display-layer production rate) locate the frame-drop layer |
+
+- `frameStat` — once per second:
+
+```json
+{"type":"frameStat","data":{"framerate":30,"bitrateKbps":3981}}
+```
+
+The serialization is covered by `EncodeUtilsTest` on the server side; the
+reference consumer is the web page in `example/` (see `example/README.md`).
+`scripts/run_monitor.sh` brings up the whole chain.
 
 ## Standalone server
 

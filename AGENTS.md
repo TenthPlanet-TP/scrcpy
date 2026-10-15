@@ -13,7 +13,7 @@ scrcpy (v3.2):在 PC 上显示并控制 Android 设备。两部分组成:C 客�
 - 并发模型:每组件一线程;生命周期统一 `init → start → stop → join → destroy`;`scrcpy()` 用 `xxx_started/initialized` 标志在 `goto end` 处逆序清理——新增组件必须遵循该模式。
 - 线程通信:① SDL 自定义事件(`events.h`,`SC_EVENT_*`;跨线程投递任务用 `SC_EVENT_RUN_ON_MAIN_THREAD` + runnable);② `const struct sc_*_cbs` 回调结构体(组件线程调用,回调内 push 事件回主线程)。
 - 协议细节以 `doc/develop.md` 为准(socket 协议、ControlMessage/DeviceMessage 序列化、JDWP 调试)。
-- 编码监控分支(encode_stat):server 端 `encodeStat/EncodeStatSender` 在第 4 个 socket `scrcpy_<scid>_encode_stat` 上向所有客户端广播逐帧编码统计(pts/size/qp/encode_cost/isKeyFrame + 汇总 framerate/bitrate),多客户端各自独立队列、drop-oldest;`example/` 的 Node Web 页订阅展示,`scripts/run_monitor.sh` 一键拉起全链路。
+- 编码监控分支(encode_stat):server 端 `encodeStat/EncodeStatSender` 在第 4 个 socket `scrcpy_<scid>_encode_stat` 上向所有客户端广播逐帧编码统计(pts/size/qp/encode_cost/isKeyFrame/seq/ts_ms + 汇总 framerate/bitrate),多客户端各自独立队列、drop-oldest;`example/` 的 Node Web 页订阅展示,`scripts/run_monitor.sh` 一键拉起全链路。
 
 ## Key Directories
 

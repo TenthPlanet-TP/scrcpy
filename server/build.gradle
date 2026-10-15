@@ -31,6 +31,7 @@ android {
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303' // 单测真 org.json(android.jar 是 stub)
     // implementation fileTree(dir: 'libs', include: ['*.jar','*.aar'])
     // implementation(name: 'utils_release_v1.0', ext: 'aar')
 }

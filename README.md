@@ -9,7 +9,7 @@
 | 图表 | 说明 |
 |---|---|
 | FrameSize(KB) | 每帧编码后大小,I 帧红色 / P 帧蓝色 |
-| QP | 量化参数(需设备端 `libencode_stat.so`,缺失时为 -1) |
+| QP | 量化参数(需设备端 `libwebrtcLibsJni.so`,缺失时为 -1) |
 | encode_cost(ms) | 单帧编码耗时 |
 | interval_jitter(ms) | 帧间隔抖动(客户端由相邻 `pts_ms` 差推导) |
 | FPS / Bitrate(Mbps) | server 端每秒汇总 |
