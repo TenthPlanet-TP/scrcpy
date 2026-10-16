@@ -1,6 +1,6 @@
 # 云手机编码测试工具
 
-基于 [scrcpy](https://github.com/Genymobile/scrcpy) v3.2 改造的 Android 性能监控工具:server 端逐帧采集编码器统计(帧大小、QP、编码耗时、帧率、码率)+ 1Hz 系统指标(CPU/内存/网络/GPU/磁盘 IO),经 abstract socket 以 JSON 行协议输出,Web 端双 Tab 实时图表展示。
+基于 [scrcpy](https://github.com/Genymobile/scrcpy) v5.0.1 改造的 Android 性能监控工具:server 端逐帧采集编码器统计(帧大小、QP、编码耗时、帧率、码率)+ 1Hz 系统指标(CPU/内存/网络/GPU/磁盘 IO),经 abstract socket 以 JSON 行协议输出,Web 端双 Tab 实时图表展示。客户端可用官方 release 二进制(非侵入形态,见下)。
 
 ![EncodeStats tab](example/screenshot-encode.png)
 
@@ -28,7 +28,7 @@
 | CPU(%) | 整机 + 指定 APP 双线(APP 需在页面输入包名) |
 | AppPSS(MB) | 指定 APP 内存(RSS 进 CSV 不画卡) |
 | Net(KB/s) | 整机网络 rx/tx |
-| GPU(%) | Mali `utilisation` sysfs(非 Mali 平台缺省断线) |
+| GPU(%) | Mali `utilisation` → Adreno(KGSL) `gpu_busy_percentage` → `devfreq/gpu_load` 兜底 |
 | IO(KB/s) | 磁盘读/写(`/proc/diskstats` 扇区差分) |
 
 ## 快速开始
@@ -40,6 +40,9 @@
 # 浏览器打开
 http://<本机IP>:9002/
 ```
+
+# 非侵入形态:客户端用官方 release 二进制(版本须与本仓库 server 匹配),仅 server 是本仓库构建
+SCRCPY_BIN=~/tools/scrcpy-linux-x86_64-v5.0.1/scrcpy ./scripts/run_monitor.sh
 
 环境变量:
 
