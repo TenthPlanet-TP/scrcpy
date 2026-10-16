@@ -1,4 +1,4 @@
-package com.genymobile.scrcpy.encodeStat;
+package com.genymobile.scrcpy.monitor;
 
 import com.genymobile.scrcpy.util.Ln;
 import android.media.MediaCodec;

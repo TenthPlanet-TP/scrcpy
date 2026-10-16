@@ -1,4 +1,4 @@
-package com.genymobile.scrcpy.encodeStat;
+package com.genymobile.scrcpy.monitor;
 
 import org.json.JSONException;
 import org.json.JSONObject;

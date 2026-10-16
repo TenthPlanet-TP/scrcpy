@@ -3,7 +3,7 @@ package com.genymobile.scrcpy.device;
 import com.genymobile.scrcpy.control.ControlChannel;
 import com.genymobile.scrcpy.util.IO;
 import com.genymobile.scrcpy.util.StringUtils;
-import com.genymobile.scrcpy.encodeStat.EncodeStatSender;
+import com.genymobile.scrcpy.monitor.EncodeStatSender;
 
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;

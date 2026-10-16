@@ -73,7 +73,7 @@ flowchart LR
 
 | 目录 | 用途 |
 |---|---|
-| `server/src/main/java/com/genymobile/scrcpy/encodeStat/` | server 端统计采集与发送 |
+| `server/src/main/java/com/genymobile/scrcpy/monitor/` | server 端统计采集与发送 |
 | `example/` | Node WebSocket 中继 + Web 监控页 |
 | `scripts/run_monitor.sh` | 一键监控链路 |
 | `scripts/deploy_server.sh` | server 构建与部署 |
