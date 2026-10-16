@@ -22,7 +22,7 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 
 import android.os.FileObserver;
-import com.genymobile.scrcpy.util.CodecOption;
+import com.genymobile.scrcpy.model.CodecOption;
 import java.util.List;
 
 

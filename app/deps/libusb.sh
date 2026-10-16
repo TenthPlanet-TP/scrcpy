@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -ex
-DEPS_DIR=$(dirname ${BASH_SOURCE[0]})
-cd "$DEPS_DIR"
-. common
+. $(dirname ${BASH_SOURCE[0]})/_init
 process_args "$@"
 
-VERSION=1.0.28
-FILENAME=libusb-$VERSION.tar.gz
-PROJECT_DIR=libusb-$VERSION
-SHA256SUM=378b3709a405065f8f9fb9f35e82d666defde4d342c2a1b181a9ac134d23c6fe
+VERSION=1.0.30
+URL="https://github.com/libusb/libusb/archive/refs/tags/v$VERSION.tar.gz"
+SHA256SUM=2ae28adb0bb9558c86135c4e1c11b320b0805461e207a64a6e520a114094bf07
+
+PROJECT_DIR="libusb-$VERSION"
+FILENAME="$PROJECT_DIR.tar.gz"
 
 cd "$SOURCES_DIR"
 
@@ -16,7 +16,7 @@ if [[ -d "$PROJECT_DIR" ]]
 then
     echo "$PWD/$PROJECT_DIR" found
 else
-    get_file "https://github.com/libusb/libusb/archive/refs/tags/v$VERSION.tar.gz" "$FILENAME" "$SHA256SUM"
+    get_file "$URL" "$FILENAME" "$SHA256SUM"
     tar xf "$FILENAME"  # First level directory is "$PROJECT_DIR"
 fi
 
@@ -62,5 +62,5 @@ else
     "$SOURCES_DIR/$PROJECT_DIR"/configure "${conf[@]}"
 fi
 
-make -j
+make -j"$NPROC"
 make install-strip

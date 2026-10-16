@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -ex
-DEPS_DIR=$(dirname ${BASH_SOURCE[0]})
-cd "$DEPS_DIR"
-. common
+. $(dirname ${BASH_SOURCE[0]})/_init "$@"
 
-VERSION=35.0.2
-FILENAME=platform-tools_r$VERSION-win.zip
-PROJECT_DIR=platform-tools-$VERSION-windows
-SHA256SUM=2975a3eac0b19182748d64195375ad056986561d994fffbdc64332a516300bb9
+# Google only provides x86 Windows platform-tools, so the same adb.exe is used
+# for all Windows targets (on Windows ARM64, it runs via emulation).
+
+VERSION=37.0.1
+URL="https://dl.google.com/android/repository/platform-tools_r$VERSION-win.zip"
+SHA256SUM=45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99
+
+PROJECT_DIR="platform-tools-$VERSION-windows"
+FILENAME="$PROJECT_DIR.zip"
 
 cd "$SOURCES_DIR"
 
@@ -15,7 +18,7 @@ if [[ -d "$PROJECT_DIR" ]]
 then
     echo "$PWD/$PROJECT_DIR" found
 else
-    get_file "https://dl.google.com/android/repository/$FILENAME" "$FILENAME" "$SHA256SUM"
+    get_file "$URL" "$FILENAME" "$SHA256SUM"
     mkdir -p "$PROJECT_DIR"
     cd "$PROJECT_DIR"
     ZIP_PREFIX=platform-tools

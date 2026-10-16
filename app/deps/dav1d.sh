@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -ex
-DEPS_DIR=$(dirname ${BASH_SOURCE[0]})
-cd "$DEPS_DIR"
-. common
+. $(dirname ${BASH_SOURCE[0]})/_init
 process_args "$@"
 
-VERSION=1.5.0
-FILENAME=dav1d-$VERSION.tar.gz
-PROJECT_DIR=dav1d-$VERSION
-SHA256SUM=78b15d9954b513ea92d27f39362535ded2243e1b0924fde39f37a31ebed5f76b
+VERSION=1.5.4
+URL="https://downloads.videolan.org/pub/videolan/dav1d/$VERSION/dav1d-$VERSION.tar.xz"
+SHA256SUM=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
+
+PROJECT_DIR="dav1d-$VERSION"
+FILENAME="$PROJECT_DIR.tar.xz"
 
 cd "$SOURCES_DIR"
 
@@ -16,7 +16,7 @@ if [[ -d "$PROJECT_DIR" ]]
 then
     echo "$PWD/$PROJECT_DIR" found
 else
-    get_file "https://code.videolan.org/videolan/dav1d/-/archive/$VERSION/$FILENAME" "$FILENAME" "$SHA256SUM"
+    get_file "$URL" "$FILENAME" "$SHA256SUM"
     tar xf "$FILENAME"  # First level directory is "$PROJECT_DIR"
 fi
 

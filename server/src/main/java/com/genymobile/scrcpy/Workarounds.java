@@ -6,9 +6,9 @@ import com.genymobile.scrcpy.util.Ln;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Application;
+import android.app.Instrumentation;
 import android.content.AttributionSource;
 import android.content.Context;
-import android.content.ContextWrapper;
 import android.content.pm.ApplicationInfo;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
@@ -29,8 +29,6 @@ public final class Workarounds {
     private static final Object ACTIVITY_THREAD;
 
     static {
-        prepareMainLooper();
-
         try {
             // ActivityThread activityThread = new ActivityThread();
             ACTIVITY_THREAD_CLASS = Class.forName("android.app.ActivityThread");
@@ -77,19 +75,6 @@ public final class Workarounds {
         fillAppContext();
     }
 
-    @SuppressWarnings("deprecation")
-    private static void prepareMainLooper() {
-        // Some devices internally create a Handler when creating an input Surface, causing an exception:
-        //   "Can't create handler inside thread that has not called Looper.prepare()"
-        // <https://github.com/Genymobile/scrcpy/issues/240>
-        //
-        // Use Looper.prepareMainLooper() instead of Looper.prepare() to avoid a NullPointerException:
-        //   "Attempt to read from field 'android.os.MessageQueue android.os.Looper.mQueue'
-        //    on a null object reference"
-        // <https://github.com/Genymobile/scrcpy/issues/921>
-        Looper.prepareMainLooper();
-    }
-
     private static void fillAppInfo() {
         try {
             // ActivityThread.AppBindData appBindData = new ActivityThread.AppBindData();
@@ -118,10 +103,7 @@ public final class Workarounds {
 
     private static void fillAppContext() {
         try {
-            Application app = new Application();
-            Field baseField = ContextWrapper.class.getDeclaredField("mBase");
-            baseField.setAccessible(true);
-            baseField.set(app, FakeContext.get());
+            Application app = Instrumentation.newApplication(Application.class, FakeContext.get());
 
             // activityThread.mInitialApplication = app;
             Field mInitialApplicationField = ACTIVITY_THREAD_CLASS.getDeclaredField("mInitialApplication");

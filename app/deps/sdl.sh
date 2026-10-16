@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -ex
-DEPS_DIR=$(dirname ${BASH_SOURCE[0]})
-cd "$DEPS_DIR"
-. common
+. $(dirname ${BASH_SOURCE[0]})/_init
 process_args "$@"
 
-VERSION=2.32.2
-FILENAME=SDL-$VERSION.tar.gz
-PROJECT_DIR=SDL-release-$VERSION
-SHA256SUM=f2c7297ae7b3d3910a8b131e1e2a558fdd6d1a4443d5e345374d45cadfcb05a4
+VERSION=3.4.18
+URL="https://github.com/libsdl-org/SDL/archive/refs/tags/release-$VERSION.tar.gz"
+SHA256SUM=c4b08b950bd29d83caae0ab8d884298d27046a9d30700fb42841c50992665c90
+
+PROJECT_DIR="sdl-$VERSION"
+FILENAME="$PROJECT_DIR.tar.gz"
 
 cd "$SOURCES_DIR"
 
@@ -16,9 +16,9 @@ if [[ -d "$PROJECT_DIR" ]]
 then
     echo "$PWD/$PROJECT_DIR" found
 else
-    get_file "https://github.com/libsdl-org/SDL/archive/refs/tags/release-$VERSION.tar.gz" "$FILENAME" "$SHA256SUM"
-    tar xf "$FILENAME"  # First level directory is "$PROJECT_DIR"
-    patch -d "$PROJECT_DIR" -p1 < "$PATCHES_DIR"/SDL-pipewire-Ensure-that-the-correct-struct-is-used-for-.patch
+    get_file "$URL" "$FILENAME" "$SHA256SUM"
+    tar xf "$FILENAME"  # First level directory is "SDL-release-$VERSION"
+    mv "SDL-release-$VERSION" "$PROJECT_DIR"
 fi
 
 mkdir -p "$BUILD_DIR/$PROJECT_DIR"
@@ -29,52 +29,57 @@ export CXXFLAGS="$CFLAGS"
 
 if [[ -d "$DIRNAME" ]]
 then
-    echo "'$PWD/$HDIRNAME' already exists, not reconfigured"
+    echo "'$PWD/$DIRNAME' already exists, not reconfigured"
     cd "$DIRNAME"
 else
     mkdir "$DIRNAME"
     cd "$DIRNAME"
 
     conf=(
-        --prefix="$INSTALL_DIR/$DIRNAME"
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR/$DIRNAME"
+        -DCMAKE_BUILD_TYPE=Release
+        -DSDL_TESTS=OFF
     )
 
     if [[ "$HOST" == linux ]]
     then
         conf+=(
-            --enable-video-wayland
-            --enable-video-x11
+            -DSDL_WAYLAND=ON
+            -DSDL_X11=ON
         )
     fi
 
     if [[ "$LINK_TYPE" == static ]]
     then
         conf+=(
-            --enable-static
-            --disable-shared
+            -DBUILD_SHARED_LIBS=OFF
         )
     else
         conf+=(
-            --disable-static
-            --enable-shared
+            -DBUILD_SHARED_LIBS=ON
         )
     fi
 
     if [[ "$BUILD_TYPE" == cross ]]
     then
+        if [[ "$HOST" = win32 ]]
+        then
+            TOOLCHAIN_FILENAME="cmake-toolchain-mingw64-i686.cmake"
+        elif [[ "$HOST" = win64 ]]
+        then
+            TOOLCHAIN_FILENAME="cmake-toolchain-mingw64-x86_64.cmake"
+        else
+            echo "Unsupported cross-build to host: $HOST" >&2
+            exit 1
+        fi
+
         conf+=(
-            --host="$HOST_TRIPLET"
+            -DCMAKE_TOOLCHAIN_FILE="$SOURCES_DIR/$PROJECT_DIR/build-scripts/$TOOLCHAIN_FILENAME"
         )
     fi
 
-    "$SOURCES_DIR/$PROJECT_DIR"/configure "${conf[@]}"
+    cmake "$SOURCES_DIR/$PROJECT_DIR" "${conf[@]}"
 fi
 
-make -j
-# There is no "make install-strip"
-make install
-# Strip manually
-if [[ "$LINK_TYPE" == shared && "$HOST" == win* ]]
-then
-    ${HOST_TRIPLET}-strip "$INSTALL_DIR/$DIRNAME/bin/SDL2.dll"
-fi
+cmake --build . -j"$NPROC"
+cmake --install .

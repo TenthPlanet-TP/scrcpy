@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -ex
-DEPS_DIR=$(dirname ${BASH_SOURCE[0]})
-cd "$DEPS_DIR"
-. common
+. $(dirname ${BASH_SOURCE[0]})/_init "$@"
 
-VERSION=35.0.2
-FILENAME=platform-tools_r$VERSION-darwin.zip
-PROJECT_DIR=platform-tools-$VERSION-darwin
-SHA256SUM=1820078db90bf21628d257ff052528af1c61bb48f754b3555648f5652fa35d78
+VERSION=37.0.1
+URL="https://dl.google.com/android/repository/platform-tools_r$VERSION-darwin.zip"
+SHA256SUM=ee39ad5967e95c2a07f04dbcbde96b1a0c916ba376096db5d2f498b7727a5d1d
+
+PROJECT_DIR="platform-tools-$VERSION-darwin"
+FILENAME="$PROJECT_DIR.zip"
 
 cd "$SOURCES_DIR"
 
@@ -15,7 +15,7 @@ if [[ -d "$PROJECT_DIR" ]]
 then
     echo "$PWD/$PROJECT_DIR" found
 else
-    get_file "https://dl.google.com/android/repository/$FILENAME" "$FILENAME" "$SHA256SUM"
+    get_file "$URL" "$FILENAME" "$SHA256SUM"
     mkdir -p "$PROJECT_DIR"
     cd "$PROJECT_DIR"
     ZIP_PREFIX=platform-tools

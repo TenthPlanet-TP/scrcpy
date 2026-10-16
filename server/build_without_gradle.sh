@@ -12,10 +12,10 @@
 set -e
 
 SCRCPY_DEBUG=false
-SCRCPY_VERSION_NAME=3.2
+SCRCPY_VERSION_NAME=5.0.1
 
-PLATFORM=${ANDROID_PLATFORM:-35}
-BUILD_TOOLS=${ANDROID_BUILD_TOOLS:-35.0.0}
+PLATFORM=${ANDROID_PLATFORM:-36}
+BUILD_TOOLS=${ANDROID_BUILD_TOOLS:-36.0.0}
 PLATFORM_TOOLS="$ANDROID_HOME/platforms/android-$PLATFORM"
 BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
 
@@ -62,7 +62,9 @@ SRC=( \
     com/genymobile/scrcpy/audio/*.java \
     com/genymobile/scrcpy/control/*.java \
     com/genymobile/scrcpy/device/*.java \
+    com/genymobile/scrcpy/display/*.java \
     com/genymobile/scrcpy/encodeStat/*.java \
+    com/genymobile/scrcpy/model/*.java \
     com/genymobile/scrcpy/opengl/*.java \
     com/genymobile/scrcpy/util/*.java \
     com/genymobile/scrcpy/video/*.java \
@@ -87,7 +89,7 @@ javac -encoding UTF-8 -bootclasspath "$ANDROID_JAR" \
 echo "Dexing..."
 cd "$CLASSES_DIR"
 
-if [[ $PLATFORM -lt 31 ]]
+if [[ "${PLATFORM%%.*}" -lt 31 ]]
 then
     # use dx
     "$BUILD_TOOLS_DIR/dx" --dex --output "$BUILD_DIR/classes.dex" \

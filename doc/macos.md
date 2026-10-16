@@ -6,19 +6,16 @@
 
 Download a static build of the [latest release]:
 
- - [`scrcpy-macos-aarch64-v3.2.tar.gz`][direct-macos-aarch64] (aarch64)  
-   <sub>SHA-256: `f6d1f3c5f74d4d46f5080baa5b56b69f5edbf698d47e0cf4e2a1fd5058f9507b`</sub>
-
- - [`scrcpy-macos-x86_64-v3.2.tar.gz`][direct-macos-x86_64] (x86_64)  
-   <sub>SHA-256: `e337d5cf0ba4e1281699c338ce5f104aee96eb7b2893dc851399b6643eb4044e`</sub>
+ - [`scrcpy-macos-aarch64-v5.0.1.tar.gz`][direct-macos-aarch64] (aarch64)  
+   <sub>SHA-256: `33611e51977a8289e2e124b220f727895181ef2eb9060e0987a4dc2db9cf0d6b`</sub>
+ - [`scrcpy-macos-x86_64-v5.0.1.tar.gz`][direct-macos-x86_64] (x86_64)  
+   <sub>SHA-256: `31a5467a9e907f162b093267cbbab1276b15c6e709c2ea8159566a8d165beb50`</sub>
 
 [latest release]: https://github.com/Genymobile/scrcpy/releases/latest
-[direct-macos-aarch64]: https://github.com/Genymobile/scrcpy/releases/download/v3.2/scrcpy-macos-aarch64-v3.2.tar.gz
-[direct-macos-x86_64]: https://github.com/Genymobile/scrcpy/releases/download/v3.2/scrcpy-macos-x86_64-v3.2.tar.gz
+[direct-macos-aarch64]: https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-macos-aarch64-v5.0.1.tar.gz
+[direct-macos-x86_64]: https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-macos-x86_64-v5.0.1.tar.gz
 
 and extract it.
-
-_Static builds of scrcpy for macOS are still experimental._
 
 
 ### From a package manager

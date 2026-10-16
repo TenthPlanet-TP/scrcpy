@@ -127,8 +127,8 @@ static void test_serialize_inject_scroll_event(void) {
                     .height = 1920,
                 },
             },
-            .hscroll = 1,
-            .vscroll = -1,
+            .hscroll = 16,
+            .vscroll = -16,
             .buttons = 1,
         },
     };
@@ -141,8 +141,8 @@ static void test_serialize_inject_scroll_event(void) {
         SC_CONTROL_MSG_TYPE_INJECT_SCROLL_EVENT,
         0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x04, 0x02, // 260 1026
         0x04, 0x38, 0x07, 0x80, // 1080 1920
-        0x7F, 0xFF, // 1 (float encoded as i16)
-        0x80, 0x00, // -1 (float encoded as i16)
+        0x7F, 0xFF, // 16 (float encoded as i16 in the range [-16, 16])
+        0x80, 0x00, // -16 (float encoded as i16 in the range [-16, 16])
         0x00, 0x00, 0x00, 0x01, // 1
     };
     assert(!memcmp(buf, expected, sizeof(expected)));
@@ -411,6 +411,26 @@ static void test_serialize_open_hard_keyboard(void) {
     assert(!memcmp(buf, expected, sizeof(expected)));
 }
 
+static void test_serialize_start_app(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_START_APP,
+        .start_app = {
+            .name = "firefox",
+        },
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 9);
+
+    const uint8_t expected[] = {
+        SC_CONTROL_MSG_TYPE_START_APP,
+        7, // length
+        'f', 'i', 'r', 'e', 'f', 'o', 'x', // app name
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+}
+
 static void test_serialize_reset_video(void) {
     struct sc_control_msg msg = {
         .type = SC_CONTROL_MSG_TYPE_RESET_VIDEO,
@@ -422,6 +442,97 @@ static void test_serialize_reset_video(void) {
 
     const uint8_t expected[] = {
         SC_CONTROL_MSG_TYPE_RESET_VIDEO,
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+}
+
+static void test_serialize_camera_set_torch(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_CAMERA_SET_TORCH,
+        .camera_set_torch = {
+            .on = true,
+        },
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 2);
+
+    const uint8_t expected[] = {
+        SC_CONTROL_MSG_TYPE_CAMERA_SET_TORCH,
+        0x01, // true
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+}
+
+static void test_serialize_camera_zoom_in(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_CAMERA_ZOOM_IN,
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 1);
+
+    const uint8_t expected[] = {
+        SC_CONTROL_MSG_TYPE_CAMERA_ZOOM_IN,
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+}
+
+static void test_serialize_camera_zoom_out(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_CAMERA_ZOOM_OUT,
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 1);
+
+    const uint8_t expected[] = {
+        SC_CONTROL_MSG_TYPE_CAMERA_ZOOM_OUT,
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+}
+
+static void test_serialize_resize_display(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_RESIZE_DISPLAY,
+        .resize_display = {
+            .width = 1920,
+            .height = 1080,
+        },
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 5);
+
+    const uint8_t expected[] = {
+        SC_CONTROL_MSG_TYPE_RESIZE_DISPLAY,
+        1920 >> 8, 1920 & 0xff,
+        1080 >> 8, 1080 & 0xff,
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+}
+
+static void test_serialize_scan_file(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_SCAN_FILE,
+        .scan_file = {
+            .path = "/sdcard/Download",
+        },
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 21);
+
+    const uint8_t expected[] = {
+        SC_CONTROL_MSG_TYPE_SCAN_FILE,
+        0x00, 0x00, 0x00, 0x10, // path length
+        '/', 's', 'd', 'c', 'a', 'r', 'd',
+        '/', 'D', 'o', 'w', 'n', 'l', 'o', 'a', 'd', // path
     };
     assert(!memcmp(buf, expected, sizeof(expected)));
 }
@@ -448,6 +559,12 @@ int main(int argc, char *argv[]) {
     test_serialize_uhid_input();
     test_serialize_uhid_destroy();
     test_serialize_open_hard_keyboard();
+    test_serialize_start_app();
     test_serialize_reset_video();
+    test_serialize_camera_set_torch();
+    test_serialize_camera_zoom_in();
+    test_serialize_camera_zoom_out();
+    test_serialize_resize_display();
+    test_serialize_scan_file();
     return 0;
 }

@@ -3,8 +3,8 @@
 #include <stdint.h>
 
 // 1 byte for buttons + padding, 1 byte for X position, 1 byte for Y position,
-// 1 byte for wheel motion
-#define SC_HID_MOUSE_INPUT_SIZE 4
+// 1 byte for wheel motion, 1 byte for hozizontal scrolling
+#define SC_HID_MOUSE_INPUT_SIZE 5
 
 /**
  * Mouse descriptor from the specification:
@@ -73,6 +73,21 @@ static const uint8_t SC_HID_MOUSE_REPORT_DESC[] = {
     // Report Count (3)
     0x95, 0x03,
     // Input (Data, Variable, Relative): 3 position bytes (X, Y, Wheel)
+    0x81, 0x06,
+
+    // Usage Page (Consumer Page)
+    0x05, 0x0C,
+    // Usage(AC Pan)
+    0x0A, 0x38, 0x02,
+    // Logical Minimum (-127)
+    0x15, 0x81,
+    // Logical Maximum (127)
+    0x25, 0x7F,
+    // Report Size (8)
+    0x75, 0x08,
+    // Report Count (1)
+    0x95, 0x01,
+    // Input (Data, Variable, Relative): 1 byte (AC Pan)
     0x81, 0x06,
 
     // End Collection
@@ -152,6 +167,12 @@ sc_hid_buttons_from_buttons_state(uint8_t buttons_state) {
 }
 
 void
+sc_hid_mouse_init(struct sc_hid_mouse *hid) {
+    hid->residual_hscroll = 0;
+    hid->residual_vscroll = 0;
+}
+
+void
 sc_hid_mouse_generate_input_from_motion(struct sc_hid_input *hid_input,
                                     const struct sc_mouse_motion_event *event) {
     sc_hid_mouse_input_init(hid_input);
@@ -160,7 +181,8 @@ sc_hid_mouse_generate_input_from_motion(struct sc_hid_input *hid_input,
     data[0] = sc_hid_buttons_from_buttons_state(event->buttons_state);
     data[1] = CLAMP(event->xrel, -127, 127);
     data[2] = CLAMP(event->yrel, -127, 127);
-    data[3] = 0; // wheel coordinates only used for scrolling
+    data[3] = 0; // no vertical scrolling
+    data[4] = 0; // no horizontal scrolling
 }
 
 void
@@ -172,22 +194,42 @@ sc_hid_mouse_generate_input_from_click(struct sc_hid_input *hid_input,
     data[0] = sc_hid_buttons_from_buttons_state(event->buttons_state);
     data[1] = 0; // no x motion
     data[2] = 0; // no y motion
-    data[3] = 0; // wheel coordinates only used for scrolling
+    data[3] = 0; // no vertical scrolling
+    data[4] = 0; // no horizontal scrolling
 }
 
-void
-sc_hid_mouse_generate_input_from_scroll(struct sc_hid_input *hid_input,
+static int8_t
+consume_scroll_integer(float *scroll) {
+    float value = CLAMP(*scroll, -127, 127);
+    int8_t consume = value; // truncate towards 0
+    float residual = value - consume;
+    *scroll = residual;
+    return consume;
+}
+
+bool
+sc_hid_mouse_generate_input_from_scroll(struct sc_hid_mouse *hid,
+                                        struct sc_hid_input *hid_input,
                                     const struct sc_mouse_scroll_event *event) {
     sc_hid_mouse_input_init(hid_input);
+
+    hid->residual_hscroll += event->hscroll;
+    hid->residual_vscroll += event->vscroll;
+    int8_t hscroll = consume_scroll_integer(&hid->residual_hscroll);
+    int8_t vscroll = consume_scroll_integer(&hid->residual_vscroll);
+
+    if (!hscroll && !vscroll) {
+        // Not enough scrolling to inject a scroll event
+        return false;
+    }
 
     uint8_t *data = hid_input->data;
     data[0] = 0; // buttons state irrelevant (and unknown)
     data[1] = 0; // no x motion
     data[2] = 0; // no y motion
-    // In practice, vscroll is always -1, 0 or 1, but in theory other values
-    // are possible
-    data[3] = CLAMP(event->vscroll, -127, 127);
-    // Horizontal scrolling ignored
+    data[3] = vscroll;
+    data[4] = hscroll;
+    return true;
 }
 
 void sc_hid_mouse_generate_open(struct sc_hid_open *hid_open) {

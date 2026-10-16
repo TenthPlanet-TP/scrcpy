@@ -191,7 +191,8 @@ sc_vecdeque_reallocdata_(void *ptr, size_t newcap, size_t item_size,
 
     size_t right_len = MIN(size, oldcap - oldorigin);
     assert(right_len);
-    memcpy(newptr, (char *) ptr + (oldorigin * item_size), right_len * item_size);
+    memcpy(newptr, (char *) ptr + (oldorigin * item_size),
+           right_len * item_size);
 
     if (size > right_len) {
         memcpy((char *) newptr + (right_len * item_size), ptr,
@@ -301,7 +302,7 @@ sc_vecdeque_growsize_(size_t value)
  * This function may not fail. It returns a valid non-NULL pointer to the
  * uninitialized item just pushed.
  */
-#define sc_vecdeque_push_hole_noresize(pv) \
+#define sc_vecdeque_push_uninitialized_noresize(pv) \
 ({ \
     assert(!sc_vecdeque_is_full(pv)); \
     ++(pv)->size; \
@@ -316,9 +317,9 @@ sc_vecdeque_growsize_(size_t value)
  * This function returns either a valid non-NULL pointer to the uninitialized
  * item just pushed, or NULL on reallocation failure.
  */
-#define sc_vecdeque_push_hole(pv) \
+#define sc_vecdeque_push_uninitialized(pv) \
     (sc_vecdeque_grow_if_needed_(pv) ? \
-            sc_vecdeque_push_hole_noresize(pv) : NULL)
+            sc_vecdeque_push_uninitialized_noresize(pv) : NULL)
 
 /**
  * Push an item
