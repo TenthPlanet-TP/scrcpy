@@ -31,6 +31,8 @@ usage() {
   ADB           adb 路径,默认 command -v adb
                 (本机注意: platform-tools 的 adb forward 子命令损坏,
                  报 "more than one device" 时请设 ADB=/usr/bin/adb)
+  SCRCPY_BIN   非侵入形态:用官方 release 的 scrcpy 二进制(须与本仓库 server 版本匹配),
+               server 仍用本仓库构建(可用 SERVER_APK 覆盖路径)
 EOF
 }
 
@@ -60,6 +62,13 @@ elif [ -f "$ROOT/scrcpy" ] && [ -f "$ROOT/scrcpy-server" ]; then
     BUILD_FALLBACK=0
 else
     echo "既不在源码树也不在 release 包内(缺 scrcpy/scrcpy-server)" >&2; exit 1
+fi
+# 非侵入形态:官方 release 二进制 + 本仓库 server——SCRCPY_BIN 覆盖客户端路径
+if [ -n "$SCRCPY_BIN" ]; then
+    [ -x "$SCRCPY_BIN" ] || die "SCRCPY_BIN 指向不可执行: $SCRCPY_BIN"
+    SCRCPY="$SCRCPY_BIN"
+    APK=${SERVER_APK:-$ROOT/server/build/outputs/apk/debug/server-debug.apk}
+    BUILD_FALLBACK=0
 fi
 
 if [ -z "$SERIAL" ]; then
